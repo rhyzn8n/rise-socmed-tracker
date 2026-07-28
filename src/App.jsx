@@ -1,16 +1,17 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { db, auth } from "./firebase";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import {
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, LineChart, Line, Legend
+  Tooltip, ResponsiveContainer, LineChart, Line, Legend, LabelList
 } from "recharts";
 import {
   LayoutDashboard, ClipboardList, TrendingUp, Target, Plus, X,
   ChevronDown, Filter, ArrowUp, ArrowDown, CheckCircle2, Clock,
   Circle, Search, AlertTriangle, ChevronUp, MessageSquareText, Copy, Sparkles, Wand2, Hash, FileText,
-  CalendarDays, ChevronLeft, ChevronRight, Bell
+  CalendarDays, ChevronLeft, ChevronRight, Bell, Ban, RotateCcw, Pencil, Trash2, Smile,
+  Bold, Italic, CaseUpper, CaseLower, CaseSensitive, ShieldCheck, Maximize2
 } from "lucide-react";
 
 /* ---------------------------------- DATA ---------------------------------- */
@@ -19,6 +20,11 @@ const MAJOR_SERVICES = ["NCLEX Australia","NCLEX Canada","NCLEX USA","Middle Eas
 const MINOR_SERVICES = ["NAI","Tourist Visa","Visascreen","License Endorsement","OPRA/KAPS","Australia Midwifery","ASCPi","AUS License Renewal","Branch Info","CBC","Truemerit","CPD","CVS NZ/NCNZ","FAQ/Trivia","Featured Clients","General Post","Hope Talk","Hopkins","IELTS Sced","IPASS Cares","Live Video","Medtech Middle East","MET","Motivational","NCLEX Question","NCLEX Answer","New Mexico","NNAS","PNLE","PRC","Promo","NCLEX Q&AI","Score Transfer","Study Tips/Trivia","UWORLD","US License Renewal","WES","Blog","YT Post"];
 const CREATIVE_TYPES = ["Infographics/Information","Blog Cover","Motivational Content","Promo","Reel/Video/Animation","Educational","Event","Passers","Testimonial"];
 const ALL_SERVICES = [...MAJOR_SERVICES, ...MINOR_SERVICES];
+const EXTRA_MAJOR_COLOR_POOL = ["#7A6FB0", "#4C8FBD", "#A8763E", "#5C8A3A", "#8A4B6B"];
+const PIE_COLORS = ["#146356", "#E8A33D", "#4C8C6B", "#B0538A", "#3E7CB1", "#C4544A", "#2E7D6B", "#9AA39B", "#0E2B27"];
+// Only these login emails are ever treated as Admin — a code-level lock, same pattern as Rise V1.
+// Admin cannot be granted through the app UI; edit this list and redeploy to change it.
+const ADMIN_EMAILS = ["YOUR_ADMIN_EMAIL@example.com"];
 const MAJOR_SERVICE_COLOR = {
   "NCLEX Australia": "#146356",
   "NCLEX Canada": "#3E7CB1",
@@ -47,6 +53,9 @@ const DEPTS = ["Social Media", "SEO", "Digital Marketing", "Operations", "Manage
 const PRIORITIES = ["Low", "Normal", "High", "Urgent"];
 const PRIORITY_COLOR = { Low: "#9AA39B", Normal: "#146356", High: "#E8A33D", Urgent: "#C4544A" };
 const PURPOSES = ["Ads", "YouTube", "TikTok", "Facebook/IG", "Website", "Other"];
+const POST_STATUSES = ["Pending", "Posted", "Cancelled", "Rescheduled", "Flagged"];
+const POST_STATUS_COLOR = { "Pending": "#9AA39B", "Posted": "#146356", "Cancelled": "#C4544A", "Rescheduled": "#E8A33D", "Flagged": "#B0538A" };
+const POST_STATUS_ICON = { "Pending": Circle, "Posted": CheckCircle2, "Cancelled": Ban, "Rescheduled": RotateCcw, "Flagged": AlertTriangle };
 
 const BENCHMARKS = {
   Facebook:  { growth: [[0.5,"Low"],[1,"Healthy"],[2,"Good"],[3,"Very Good"],[Infinity,"Excellent"]], engagement: [[0.5,"Low"],[1,"Average"],[2,"Strong"],[3,"Excellent"],[Infinity,"Top-Performing"]] },
@@ -70,9 +79,36 @@ function rate(platform, kind, value) {
 
 const monthLabel = (ym) => new Date(ym + "-01").toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 const uid = () => Math.random().toString(36).slice(2, 10);
-function primaryService(services) {
-  const major = (services || []).find(s => MAJOR_SERVICES.includes(s));
-  if (major) return { name: major, color: MAJOR_SERVICE_COLOR[major], isMajor: true };
+
+// Social platforms render plain text only — no real bold/italic HTML. The common
+// workaround people actually use is swapping characters for Unicode "Mathematical
+// Alphanumeric" lookalikes, which display as bold/italic anywhere plain text renders.
+function toUnicodeBold(str) {
+  return str.replace(/[a-zA-Z0-9]/g, (ch) => {
+    const code = ch.charCodeAt(0);
+    if (ch >= "A" && ch <= "Z") return String.fromCodePoint(0x1D400 + (code - 65));
+    if (ch >= "a" && ch <= "z") return String.fromCodePoint(0x1D41A + (code - 97));
+    if (ch >= "0" && ch <= "9") return String.fromCodePoint(0x1D7CE + (code - 48));
+    return ch;
+  });
+}
+function toUnicodeItalic(str) {
+  return str.replace(/[a-zA-Z]/g, (ch) => {
+    if (ch === "h") return "\u210E"; // italic 'h' has its own historical code point
+    const code = ch.charCodeAt(0);
+    if (ch >= "A" && ch <= "Z") return String.fromCodePoint(0x1D434 + (code - 65));
+    if (ch >= "a" && ch <= "z") return String.fromCodePoint(0x1D44E + (code - 97));
+    return ch;
+  });
+}
+const CAPTION_EMOJIS = ["😊","🎉","✅","📢","💡","🩺","🎓","📚","🇵🇭","❤️","🔥","👏","📝","⭐","➡️","📌","🙌","💯","📅","🚨"];
+function primaryService(services, extraMajor = []) {
+  const allMajorNames = [...MAJOR_SERVICES, ...extraMajor];
+  const major = (services || []).find(s => allMajorNames.includes(s));
+  if (major) {
+    const color = MAJOR_SERVICE_COLOR[major] || EXTRA_MAJOR_COLOR_POOL[extraMajor.indexOf(major) % EXTRA_MAJOR_COLOR_POOL.length];
+    return { name: major, color, isMajor: true };
+  }
   const minor = (services || [])[0];
   return minor ? { name: minor, color: MINOR_SERVICE_COLOR, isMajor: false } : { name: "Unassigned", color: "#C9CFC7", isMajor: false };
 }
@@ -86,6 +122,7 @@ export default function RiseSocMedTracker() {
   const [targets, setTargets] = useState([]);
   const [captions, setCaptions] = useState([]);
   const [templates, setTemplates] = useState([]);
+  const [extraServices, setExtraServices] = useState({ major: [], minor: [] });
   const [loaded, setLoaded] = useState(false);
 
   const [user, setUser] = useState(null);
@@ -102,18 +139,20 @@ export default function RiseSocMedTracker() {
     if (!user) return;
     (async () => {
       try {
-        const [rSnap, cSnap, tSnap, capSnap, tplSnap] = await Promise.all([
+        const [rSnap, cSnap, tSnap, capSnap, tplSnap, svcSnap] = await Promise.all([
           getDoc(doc(db, "riseSocMedData", "requests")),
           getDoc(doc(db, "riseSocMedData", "channelStats")),
           getDoc(doc(db, "riseSocMedData", "targets")),
           getDoc(doc(db, "riseSocMedData", "captions")),
           getDoc(doc(db, "riseSocMedData", "templates")),
+          getDoc(doc(db, "riseSocMedData", "extraServices")),
         ]);
         if (rSnap.exists()) setRequests(rSnap.data().value || []);
         if (cSnap.exists()) setChannelStats(cSnap.data().value || {});
         if (tSnap.exists()) setTargets(tSnap.data().value || []);
         if (capSnap.exists()) setCaptions(capSnap.data().value || []);
         if (tplSnap.exists()) setTemplates(tplSnap.data().value || []);
+        if (svcSnap.exists()) setExtraServices(svcSnap.data().value || { major: [], minor: [] });
       } finally { setLoaded(true); }
     })();
   }, [user]);
@@ -123,6 +162,7 @@ export default function RiseSocMedTracker() {
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "targets"), { value: targets }).catch(() => {}); }, [targets, loaded, user]);
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "captions"), { value: captions }).catch(() => {}); }, [captions, loaded, user]);
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "templates"), { value: templates }).catch(() => {}); }, [templates, loaded, user]);
+  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "extraServices"), { value: extraServices }).catch(() => {}); }, [extraServices, loaded, user]);
 
   if (!authChecked) {
     return <div style={{ padding: 40, fontFamily: "'Inter',sans-serif", color: "#5B675F" }}>Loading…</div>;
@@ -141,6 +181,10 @@ export default function RiseSocMedTracker() {
   ];
 
   const todayStr = new Date().toISOString().slice(0, 10);
+  const isAdmin = !!(user && ADMIN_EMAILS.includes(user.email));
+  const allMajorServices = [...MAJOR_SERVICES, ...extraServices.major];
+  const allMinorServices = [...MINOR_SERVICES, ...extraServices.minor];
+  const allServicesList = [...allMajorServices, ...allMinorServices];
   const reminders = requests
     .filter(r => r.scheduledDate && r.scheduledDate <= todayStr && r.status !== "Completed")
     .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
@@ -213,12 +257,13 @@ export default function RiseSocMedTracker() {
 
       {/* MAIN */}
       <div style={{ flex: 1, padding: "26px 32px", overflowY: "auto", maxHeight: 620 }}>
-        {tab === "dashboard" && <Dashboard requests={requests} channelStats={channelStats} targets={targets} />}
-        {tab === "requests"  && <Requests requests={requests} setRequests={setRequests} captions={captions} user={user} />}
+        {tab === "dashboard" && <Dashboard requests={requests} channelStats={channelStats} targets={targets} allServicesList={allServicesList} />}
+        {tab === "requests"  && <Requests requests={requests} setRequests={setRequests} captions={captions} user={user} majorServices={allMajorServices} minorServices={allMinorServices} />}
         {tab === "channels"  && <Channels channelStats={channelStats} setChannelStats={setChannelStats} />}
-        {tab === "targets"   && <Targets targets={targets} setTargets={setTargets} requests={requests} />}
-        {tab === "captions"  && <Captions captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates} />}
-        {tab === "scheduler" && <Scheduler requests={requests} setRequests={setRequests} captions={captions} setCaptions={setCaptions} templates={templates} />}
+        {tab === "targets"   && <Targets targets={targets} setTargets={setTargets} requests={requests} majorServices={allMajorServices} />}
+        {tab === "captions"  && <Captions captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates} majorServices={allMajorServices} minorServices={allMinorServices} />}
+        {tab === "scheduler" && <Scheduler requests={requests} setRequests={setRequests} captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates}
+          majorServices={allMajorServices} minorServices={allMinorServices} extraServices={extraServices} setExtraServices={setExtraServices} isAdmin={isAdmin} />}
       </div>
     </div>
   );
@@ -263,7 +308,7 @@ function Login() {
 
 /* ---------------------------------- DASHBOARD ---------------------------------- */
 
-function Dashboard({ requests, channelStats, targets }) {
+function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERVICES }) {
   const [showAllCoverage, setShowAllCoverage] = useState(false);
   const currentMonth = new Date().toISOString().slice(0, 7);
   const monthRequests = useMemo(() => requests.filter(r => r.dateLogged.slice(0, 7) === currentMonth), [requests, currentMonth]);
@@ -276,7 +321,7 @@ function Dashboard({ requests, channelStats, targets }) {
 
   const coverage = useMemo(() => {
     const counts = {};
-    ALL_SERVICES.forEach(s => { counts[s] = 0; });
+    allServicesList.forEach(s => { counts[s] = 0; });
     monthRequests.forEach(r => r.services.forEach(s => { if (counts[s] !== undefined) counts[s] += 1; }));
     const list = Object.entries(counts).map(([name, count]) => ({ name, count }));
     const flagged = list.filter(s => s.count === 0).sort((a, b) => a.name.localeCompare(b.name));
@@ -287,10 +332,9 @@ function Dashboard({ requests, channelStats, targets }) {
   const byCreative = useMemo(() => {
     const counts = {};
     requests.forEach(r => { counts[r.creativeType] = (counts[r.creativeType] || 0) + 1; });
-    return Object.entries(counts).map(([name, value]) => ({ name, value }));
+    return Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
   }, [requests]);
 
-  const PIE_COLORS = ["#146356", "#E8A33D", "#4C8C6B", "#B0538A", "#3E7CB1", "#C4544A", "#2E7D6B", "#9AA39B", "#0E2B27"];
   const completed = requests.filter(r => r.status === "Completed").length;
   const inProgress = requests.filter(r => r.status === "In Progress").length;
   const pending = requests.filter(r => r.status === "Pending").length;
@@ -306,32 +350,8 @@ function Dashboard({ requests, channelStats, targets }) {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 16 }}>
-        <Card title="Requests per Service">
-          {byService.length === 0 ? <Empty text="Log a request to see the breakdown." /> : (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={byService} layout="vertical" margin={{ left: 8, right: 16 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: "#5B675F" }} allowDecimals={false} />
-                <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 11, fill: "#0E2B27" }} />
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} />
-                <Bar dataKey="count" fill="#146356" radius={[0, 4, 4, 0]} barSize={14} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </Card>
-
-        <Card title="Requests by Creative Type">
-          {byCreative.length === 0 ? <Empty text="No creative type data yet." /> : (
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie data={byCreative} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={85} label={{ fontSize: 10 }}>
-                  {byCreative.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                </Pie>
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
-        </Card>
+        <FlexibleChart title="Requests per Service" data={byService} color="#146356" empty="Log a request to see the breakdown." />
+        <FlexibleChart title="Requests by Creative Type" data={byCreative} color="#E8A33D" empty="No creative type data yet." defaultType="pie" />
       </div>
 
       <Card style={{ marginTop: 16 }}>
@@ -411,7 +431,7 @@ function Dashboard({ requests, channelStats, targets }) {
 
 /* ---------------------------------- REQUESTS ---------------------------------- */
 
-function Requests({ requests, setRequests, captions, user }) {
+function Requests({ requests, setRequests, captions, user, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES }) {
   const [open, setOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState("All");
   const [search, setSearch] = useState("");
@@ -476,12 +496,12 @@ function Requests({ requests, setRequests, captions, user }) {
         )}
       </Card>
 
-      {open && <RequestModal user={user} onClose={() => setOpen(false)} onSave={(req) => { setRequests(rs => [...rs, req]); setOpen(false); }} />}
+      {open && <RequestModal user={user} majorServices={majorServices} minorServices={minorServices} onClose={() => setOpen(false)} onSave={(req) => { setRequests(rs => [...rs, req]); setOpen(false); }} />}
     </div>
   );
 }
 
-function RequestModal({ onClose, onSave, user }) {
+function RequestModal({ onClose, onSave, user, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [requesterNotes, setRequesterNotes] = useState("");
@@ -496,7 +516,7 @@ function RequestModal({ onClose, onSave, user }) {
   const [services, setServices] = useState([]);
   const [imageUrl, setImageUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const list = serviceType === "major" ? MAJOR_SERVICES : MINOR_SERVICES;
+  const list = serviceType === "major" ? majorServices : minorServices;
 
   const toggleService = (s) => setServices(cur => cur.includes(s) ? cur.filter(x => x !== s) : [...cur, s]);
   const togglePurpose = (p) => setPurposes(cur => cur.includes(p) ? cur.filter(x => x !== p) : [...cur, p]);
@@ -718,7 +738,7 @@ function ChannelEntryModal({ channel, onClose, onSave, lastTarget }) {
 
 /* ---------------------------------- TARGETS ---------------------------------- */
 
-function Targets({ targets, setTargets, requests }) {
+function Targets({ targets, setTargets, requests, majorServices = MAJOR_SERVICES }) {
   const [open, setOpen] = useState(false);
 
   const progressFor = (t) => {
@@ -780,18 +800,18 @@ function Targets({ targets, setTargets, requests }) {
         </div>
       )}
 
-      {open && <TargetModal onClose={() => setOpen(false)} onSave={(t) => { setTargets(ts => [...ts, t]); setOpen(false); }} />}
+      {open && <TargetModal majorServices={majorServices} onClose={() => setOpen(false)} onSave={(t) => { setTargets(ts => [...ts, t]); setOpen(false); }} />}
     </div>
   );
 }
 
-function TargetModal({ onClose, onSave }) {
+function TargetModal({ onClose, onSave, majorServices = MAJOR_SERVICES }) {
   const [scope, setScope] = useState("channel");
   const [target, setTarget] = useState(CHANNELS[0].id);
   const [period, setPeriod] = useState("week");
   const [goal, setGoal] = useState(5);
 
-  useEffect(() => { setTarget(scope === "channel" ? CHANNELS[0].id : MAJOR_SERVICES[0]); }, [scope]);
+  useEffect(() => { setTarget(scope === "channel" ? CHANNELS[0].id : majorServices[0]); }, [scope]);
 
   return (
     <div style={overlay}>
@@ -807,7 +827,7 @@ function TargetModal({ onClose, onSave }) {
         </div>
         <label style={label}>{scope === "channel" ? "Channel" : "Service"}</label>
         <select value={target} onChange={e => setTarget(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 14 }}>
-          {(scope === "channel" ? CHANNELS : MAJOR_SERVICES.map(s => ({ id: s, name: s }))).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+          {(scope === "channel" ? CHANNELS : majorServices.map(s => ({ id: s, name: s }))).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
           <div>
@@ -829,10 +849,10 @@ function TargetModal({ onClose, onSave }) {
 
 /* ---------------------------------- CAPTIONS ---------------------------------- */
 
-function Captions({ captions, setCaptions, templates, setTemplates }) {
+function Captions({ captions, setCaptions, templates, setTemplates, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES }) {
   const [view, setView] = useState("library"); // library | templates
   const [open, setOpen] = useState(false);
-  const [tplOpen, setTplOpen] = useState(false);
+  const [templateEditTarget, setTemplateEditTarget] = useState(null);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterService, setFilterService] = useState("All");
@@ -851,7 +871,7 @@ function Captions({ captions, setCaptions, templates, setTemplates }) {
     <div>
       <Header title="Captions" sub="Build, store, and reuse captions across channels" action={
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => setTplOpen(true)} style={{ ...primaryBtn, background: "#fff", color: "#146356", border: "1px solid #146356" }}><FileText size={15} /> New Template</button>
+          <button onClick={() => setTemplateEditTarget({ id: uid(), name: "", textEn: "", textFil: "", hashtags: [] })} style={{ ...primaryBtn, background: "#fff", color: "#146356", border: "1px solid #146356" }}><FileText size={15} /> New Template</button>
           <button onClick={() => setOpen(true)} style={primaryBtn}><Plus size={15} /> New Caption</button>
         </div>
       } />
@@ -872,7 +892,7 @@ function Captions({ captions, setCaptions, templates, setTemplates }) {
               <option>All</option>{CAPTION_STATUS.map(s => <option key={s}>{s}</option>)}
             </select>
             <select value={filterService} onChange={e => setFilterService(e.target.value)} style={{ ...inputStyle, width: 180 }}>
-              <option>All Services</option>{ALL_SERVICES.map(s => <option key={s}>{s}</option>)}
+              <option>All Services</option>{[...majorServices, ...minorServices].map(s => <option key={s}>{s}</option>)}
             </select>
           </div>
 
@@ -889,7 +909,10 @@ function Captions({ captions, setCaptions, templates, setTemplates }) {
               <Card key={t.id}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{t.name}</div>
-                  <button onClick={() => removeTemplate(t.id)} style={{ border: "none", background: "transparent", color: "#C4544A" }}><X size={14} /></button>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button onClick={() => setTemplateEditTarget(t)} style={{ border: "none", background: "transparent", color: "#146356" }}><Pencil size={13} /></button>
+                    <button onClick={() => removeTemplate(t.id)} style={{ border: "none", background: "transparent", color: "#C4544A" }}><X size={14} /></button>
+                  </div>
                 </div>
                 <div style={{ fontSize: 12, color: "#0E2B27", whiteSpace: "pre-wrap", marginBottom: 8 }}>{t.textEn}</div>
                 {t.hashtags?.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -901,9 +924,18 @@ function Captions({ captions, setCaptions, templates, setTemplates }) {
         )
       )}
 
-      {open && <CaptionModal onClose={() => setOpen(false)} templates={templates}
+      {open && <CaptionModal onClose={() => setOpen(false)} templates={templates} majorServices={majorServices} minorServices={minorServices}
         onSave={(cap) => { setCaptions(cs => [...cs, cap]); setOpen(false); }} />}
-      {tplOpen && <TemplateModal onClose={() => setTplOpen(false)} onSave={(t) => { setTemplates(ts => [...ts, t]); setTplOpen(false); }} />}
+      {templateEditTarget && (
+        <TemplateEditModal
+          template={templateEditTarget}
+          onClose={() => setTemplateEditTarget(null)}
+          onSave={(t) => {
+            setTemplates(ts => ts.some(x => x.id === t.id) ? ts.map(x => x.id === t.id ? t : x) : [...ts, t]);
+            setTemplateEditTarget(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -963,7 +995,7 @@ function CaptionCard({ c, onStatus, onRemove }) {
   );
 }
 
-function CaptionModal({ onClose, onSave, templates }) {
+function CaptionModal({ onClose, onSave, templates, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES }) {
   const [brief, setBrief] = useState("");
   const [serviceType, setServiceType] = useState("major");
   const [services, setServices] = useState([]);
@@ -973,7 +1005,7 @@ function CaptionModal({ onClose, onSave, templates }) {
   const [textEn, setTextEn] = useState("");
   const [textFil, setTextFil] = useState("");
   const [hashtagsInput, setHashtagsInput] = useState("");
-  const list = serviceType === "major" ? MAJOR_SERVICES : MINOR_SERVICES;
+  const list = serviceType === "major" ? majorServices : minorServices;
 
   const toggleService = (s) => setServices(cur => cur.includes(s) ? cur.filter(x => x !== s) : [...cur, s]);
 
@@ -1033,7 +1065,7 @@ function CaptionModal({ onClose, onSave, templates }) {
         </div>
 
         <label style={label}>Caption (English)</label>
-        <textarea value={textEn} onChange={e => setTextEn(e.target.value)} rows={4} style={{ ...inputStyle, width: "100%", marginBottom: 12, resize: "vertical" }} />
+        <RichCaptionField value={textEn} onChange={setTextEn} rows={4} />
         <label style={label}>Caption (Filipino) — optional</label>
         <textarea value={textFil} onChange={e => setTextFil(e.target.value)} rows={3} style={{ ...inputStyle, width: "100%", marginBottom: 12, resize: "vertical" }} />
 
@@ -1054,53 +1086,45 @@ function CaptionModal({ onClose, onSave, templates }) {
   );
 }
 
-function TemplateModal({ onClose, onSave }) {
-  const [name, setName] = useState("");
-  const [textEn, setTextEn] = useState("");
-  const [textFil, setTextFil] = useState("");
-  const [hashtagsInput, setHashtagsInput] = useState("");
-
-  return (
-    <div style={overlay}>
-      <div style={modal}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>New Template</div>
-          <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
-        </div>
-        <label style={label}>Template name</label>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Weekly Trivia Format" style={{ ...inputStyle, width: "100%", marginBottom: 12 }} />
-        <label style={label}>Caption text — use {"{Placeholders}"} for parts that change</label>
-        <textarea value={textEn} onChange={e => setTextEn(e.target.value)} rows={4} placeholder={"e.g. It's {ServiceName} trivia day! {CTA}"} style={{ ...inputStyle, width: "100%", marginBottom: 12, resize: "vertical" }} />
-        <label style={label}>Filipino version (optional)</label>
-        <textarea value={textFil} onChange={e => setTextFil(e.target.value)} rows={3} style={{ ...inputStyle, width: "100%", marginBottom: 12, resize: "vertical" }} />
-        <label style={label}><Hash size={11} style={{ verticalAlign: -1 }} /> Default hashtags (comma-separated)</label>
-        <input value={hashtagsInput} onChange={e => setHashtagsInput(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 20 }} />
-        <button
-          disabled={!name || !textEn}
-          onClick={() => onSave({ id: uid(), name, textEn, textFil, hashtags: hashtagsInput.split(",").map(h => h.trim()).filter(Boolean) })}
-          style={{ ...primaryBtn, width: "100%", justifyContent: "center", opacity: (!name || !textEn) ? 0.5 : 1 }}
-        >Save Template</button>
-      </div>
-    </div>
-  );
-}
 
 /* ---------------------------------- SCHEDULER ---------------------------------- */
 
-function Scheduler({ requests, setRequests, captions, setCaptions, templates }) {
+function Scheduler({ requests, setRequests, captions, setCaptions, templates, setTemplates, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES, extraServices = { major: [], minor: [] }, setExtraServices, isAdmin }) {
   const [view, setView] = useState("month");
   const [cursor, setCursor] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(null);
   const [newModalDate, setNewModalDate] = useState(null);
-
-  const scheduled = useMemo(() => requests.filter(r => r.scheduledDate), [requests]);
-  const byDate = useMemo(() => {
-    const map = {};
-    scheduled.forEach(r => { (map[r.scheduledDate] = map[r.scheduledDate] || []).push(r); });
-    return map;
-  }, [scheduled]);
+  const [editingPost, setEditingPost] = useState(null);
+  const [rescheduling, setRescheduling] = useState(null);
+  const [addServiceOpen, setAddServiceOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("All");
 
   const todayStr = new Date().toISOString().slice(0, 10);
+  const isPast = (dateStr) => dateStr < todayStr;
+
+  const scheduled = useMemo(() => requests.filter(r => r.scheduledDate), [requests]);
+  const filteredScheduled = useMemo(() =>
+    statusFilter === "All" ? scheduled : scheduled.filter(r => (r.postStatus || "Pending") === statusFilter)
+  , [scheduled, statusFilter]);
+  const byDate = useMemo(() => {
+    const map = {};
+    filteredScheduled.forEach(r => { (map[r.scheduledDate] = map[r.scheduledDate] || []).push(r); });
+    return map;
+  }, [filteredScheduled]);
+
+  const statusCounts = useMemo(() => {
+    const counts = {};
+    POST_STATUSES.forEach(s => { counts[s] = 0; });
+    scheduled.forEach(r => { const s = r.postStatus || "Pending"; if (counts[s] !== undefined) counts[s] += 1; });
+    return counts;
+  }, [scheduled]);
+
+  const readiness = useMemo(() => {
+    const pending = scheduled.filter(r => (r.postStatus || "Pending") === "Pending");
+    const ready = pending.filter(r => r.linkedCaptionId && r.creativeRef).length;
+    return { ready, total: pending.length };
+  }, [scheduled]);
+
   const shift = (amount) => setCursor(c => {
     const d = new Date(c);
     if (view === "month") d.setMonth(d.getMonth() + amount);
@@ -1110,7 +1134,6 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates }) 
 
   const monthLabelFull = cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
-  // Build month grid
   const monthGrid = useMemo(() => {
     const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
     const startPad = first.getDay();
@@ -1121,7 +1144,6 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates }) 
     return cells;
   }, [cursor]);
 
-  // Build week range (Sun–Sat containing cursor)
   const weekDays = useMemo(() => {
     const d = new Date(cursor);
     d.setDate(d.getDate() - d.getDay());
@@ -1129,12 +1151,62 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates }) 
   }, [cursor]);
 
   const fmt = (d) => d.toISOString().slice(0, 10);
+  const updatePost = (id, patch) => setRequests(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r));
+  const removePost = (id) => { setRequests(rs => rs.filter(r => r.id !== id)); setEditingPost(null); };
+
+  const addService = (type, name) => {
+    setExtraServices(prev => {
+      const key = type === "major" ? "major" : "minor";
+      if (prev[key].includes(name)) return prev;
+      return { ...prev, [key]: [...prev[key], name] };
+    });
+  };
 
   return (
     <div>
       <Header title="Scheduler" sub="Color-coded planning calendar across channels" action={
-        <button onClick={() => setNewModalDate(todayStr)} style={primaryBtn}><Plus size={15} /> New Scheduled Post</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {isAdmin && (
+            <button onClick={() => setAddServiceOpen(true)} style={{ ...primaryBtn, background: "#fff", color: "#146356", border: "1px solid #146356" }}>
+              <ShieldCheck size={14} /> Add Service
+            </button>
+          )}
+          <button onClick={() => setNewModalDate(todayStr)} style={primaryBtn}><Plus size={15} /> New Scheduled Post</button>
+        </div>
       } />
+
+      <Card style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 6 }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>Status Dashboard</div>
+          <div style={{ fontSize: 11, color: "#5B675F" }}>
+            {readiness.total === 0 ? "No pending posts yet." : (
+              <>Ready to post: <b style={{ color: readiness.ready === readiness.total ? "#146356" : "#E8A33D" }}>{readiness.ready}/{readiness.total}</b> pending have both caption + creative attached</>
+            )}
+          </div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10 }}>
+          {POST_STATUSES.map(s => {
+            const Icon = POST_STATUS_ICON[s];
+            const active = statusFilter === s;
+            return (
+              <button key={s} onClick={() => setStatusFilter(active ? "All" : s)} style={{
+                textAlign: "left", border: `1px solid ${active ? POST_STATUS_COLOR[s] : "#E3E6E0"}`, borderRadius: 8, padding: "8px 10px",
+                background: active ? POST_STATUS_COLOR[s] + "14" : "#fff",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5, color: POST_STATUS_COLOR[s], fontSize: 10.5, fontWeight: 700, marginBottom: 3 }}>
+                  <Icon size={12} /> {s}
+                </div>
+                <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>{statusCounts[s]}</div>
+              </button>
+            );
+          })}
+        </div>
+        {statusFilter !== "All" && (
+          <div style={{ fontSize: 10.5, color: "#5B675F", marginTop: 8 }}>
+            Showing "{statusFilter}" only on the calendar below. <button onClick={() => setStatusFilter("All")} style={{ border: "none", background: "transparent", color: "#146356", fontWeight: 700, textDecoration: "underline", padding: 0 }}>Clear filter</button>
+          </div>
+        )}
+      </Card>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1152,16 +1224,16 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates }) 
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
-        {MAJOR_SERVICES.map(s => (
+        {majorServices.map(s => (
           <div key={s} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#5B675F" }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: MAJOR_SERVICE_COLOR[s] }} /> {s}
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: MAJOR_SERVICE_COLOR[s] || EXTRA_MAJOR_COLOR_POOL[extraServices.major.indexOf(s) % EXTRA_MAJOR_COLOR_POOL.length] }} /> {s}
           </div>
         ))}
         <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#5B675F" }}>
           <div style={{ width: 8, height: 8, borderRadius: "50%", background: MINOR_SERVICE_COLOR }} /> Minor service (see label)
         </div>
       </div>
-      <div style={{ fontSize: 10.5, color: "#9AA39B", marginBottom: 14 }}>Color marks the Major Service; exact service always shown as text on each post.</div>
+      <div style={{ fontSize: 10.5, color: "#9AA39B", marginBottom: 14 }}>Color marks the Major Service; exact service always shown as text on each post. Past days are locked to prevent backdated logging.</div>
 
       {view === "month" ? (
         <Card>
@@ -1174,18 +1246,20 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates }) 
               const key = fmt(d);
               const items = byDate[key] || [];
               const isToday = key === todayStr;
+              const past = isPast(key);
+              const clickable = items.length > 0 || !past;
               return (
-                <button key={i} onClick={() => items.length ? setSelectedDay(key) : setNewModalDate(key)} style={{
-                  background: "#fff", minHeight: 84, padding: 6, textAlign: "left", border: "none", cursor: "pointer",
-                  display: "flex", flexDirection: "column", gap: 3,
+                <button key={i} disabled={!clickable} onClick={() => { if (items.length) setSelectedDay(key); else if (!past) setNewModalDate(key); }} style={{
+                  background: past ? "#FAFAF8" : "#fff", minHeight: 84, padding: 6, textAlign: "left", border: "none", cursor: clickable ? "pointer" : "default",
+                  display: "flex", flexDirection: "column", gap: 3, opacity: past && items.length === 0 ? 0.5 : 1,
                 }}>
                   <span style={{
-                    fontSize: 11, fontWeight: isToday ? 700 : 500, color: isToday ? "#fff" : "#0E2B27",
+                    fontSize: 11, fontWeight: isToday ? 700 : 500, color: isToday ? "#fff" : (past ? "#9AA39B" : "#0E2B27"),
                     background: isToday ? "#146356" : "transparent", width: 18, height: 18, borderRadius: "50%",
                     display: "flex", alignItems: "center", justifyContent: "center",
                   }}>{d.getDate()}</span>
                   {items.slice(0, 3).map(r => {
-                    const svc = primaryService(r.services);
+                    const svc = primaryService(r.services, extraServices.major);
                     return (
                       <div key={r.id} style={{ fontSize: 9.5, background: svc.color + "22", color: svc.color, borderRadius: 4, padding: "1px 4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={svc.name}>
                         {r.title} · {svc.name}
@@ -1205,24 +1279,26 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates }) 
               const key = fmt(d);
               const items = byDate[key] || [];
               const isToday = key === todayStr;
+              const past = isPast(key);
               return (
-                <div key={key} style={{ border: `1px solid ${isToday ? "#146356" : "#E3E6E0"}`, borderRadius: 8, padding: 8, minHeight: 220 }}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, color: isToday ? "#146356" : "#5B675F", marginBottom: 6 }}>
+                <div key={key} style={{ border: `1px solid ${isToday ? "#146356" : "#E3E6E0"}`, borderRadius: 8, padding: 8, minHeight: 220, background: past ? "#FAFAF8" : "#fff" }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: isToday ? "#146356" : (past ? "#9AA39B" : "#5B675F"), marginBottom: 6 }}>
                     {d.toLocaleDateString("en-US", { weekday: "short", day: "numeric" })}
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5, marginBottom: 6 }}>
                     {items.length === 0 && <div style={{ fontSize: 10, color: "#C9CFC7" }}>—</div>}
                     {items.map(r => {
-                      const svc = primaryService(r.services);
+                      const svc = primaryService(r.services, extraServices.major);
                       const ch = CHANNELS.find(c => c.id === r.channel);
                       return (
-                        <div key={r.id} style={{ fontSize: 10.5, background: svc.color + "22", color: svc.color, borderRadius: 5, padding: "4px 6px" }}>
+                        <button key={r.id} onClick={() => setEditingPost(r)} style={{ textAlign: "left", fontSize: 10.5, background: svc.color + "22", color: svc.color, borderRadius: 5, padding: "4px 6px", border: "none" }}>
                           <div style={{ fontWeight: 700 }}>{r.title}</div>
                           <div style={{ fontSize: 9.5, opacity: 0.85 }}>{svc.name} · {ch?.name} · {r.creativeType}</div>
-                        </div>
+                        </button>
                       );
                     })}
                   </div>
+                  {!past && <button onClick={() => setNewModalDate(key)} style={{ fontSize: 10, border: "1px dashed #D8DDD5", background: "transparent", color: "#5B675F", borderRadius: 5, padding: "3px 0", width: "100%" }}>+ Add</button>}
                 </div>
               );
             })}
@@ -1237,36 +1313,29 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates }) 
               <div className="disp" style={{ fontSize: 16, fontWeight: 600 }}>{new Date(selectedDay + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</div>
               <button onClick={() => setSelectedDay(null)} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
             </div>
-            <button onClick={() => { setNewModalDate(selectedDay); setSelectedDay(null); }} style={{ ...primaryBtn, width: "100%", justifyContent: "center", marginBottom: 12 }}>
-              <Plus size={14} /> Add another for this day
-            </button>
+            {!isPast(selectedDay) && (
+              <button onClick={() => { setNewModalDate(selectedDay); setSelectedDay(null); }} style={{ ...primaryBtn, width: "100%", justifyContent: "center", marginBottom: 12 }}>
+                <Plus size={14} /> Add another for this day
+              </button>
+            )}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {(byDate[selectedDay] || []).map(r => {
                 const ch = CHANNELS.find(c => c.id === r.channel);
-                const svc = primaryService(r.services);
-                const Icon = STATUS_ICON[r.status];
-                const linkedCaption = captions.find(c => c.id === r.linkedCaptionId);
+                const svc = primaryService(r.services, extraServices.major);
+                const pStatus = r.postStatus || "Pending";
+                const PIcon = POST_STATUS_ICON[pStatus];
                 return (
-                  <div key={r.id} style={{ border: "1px solid #E3E6E0", borderRadius: 8, padding: 10 }}>
+                  <button key={r.id} onClick={() => { setEditingPost(r); setSelectedDay(null); }} style={{ textAlign: "left", border: "1px solid #E3E6E0", borderRadius: 8, padding: 10, background: "#fff" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
                       <div style={{ width: 8, height: 8, borderRadius: "50%", background: svc.color, flexShrink: 0 }} />
-                      <div style={{ fontSize: 13, fontWeight: 700 }}>{r.title}</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{r.title}</div>
+                      <Maximize2 size={12} color="#9AA39B" />
                     </div>
                     <div style={{ fontSize: 11, color: "#5B675F", marginBottom: 6 }}>{svc.name} · {ch?.name} · {r.creativeType}</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color: STATUS_COLOR[r.status], marginBottom: 8 }}>
-                      <Icon size={12} /> {r.status}
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color: POST_STATUS_COLOR[pStatus] }}>
+                      <PIcon size={12} /> {pStatus}
                     </div>
-                    {linkedCaption && (
-                      <div style={{ fontSize: 11.5, background: "#F5F6F1", borderRadius: 6, padding: 8, marginBottom: 6, whiteSpace: "pre-wrap" }}>
-                        {linkedCaption.textEn}
-                      </div>
-                    )}
-                    {r.creativeRef && (
-                      <a href={r.creativeRef} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#146356", fontWeight: 600, wordBreak: "break-all" }}>
-                        View creative reference →
-                      </a>
-                    )}
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -1277,38 +1346,168 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates }) 
       {newModalDate && (
         <SchedulerPostModal
           initialDate={newModalDate}
-          captions={captions}
-          setCaptions={setCaptions}
-          templates={templates}
+          captions={captions} setCaptions={setCaptions}
+          templates={templates} setTemplates={setTemplates}
+          majorServices={majorServices} minorServices={minorServices}
           onClose={() => setNewModalDate(null)}
           onSave={(req) => { setRequests(rs => [...rs, req]); setNewModalDate(null); }}
         />
       )}
+
+      {editingPost && !rescheduling && (
+        <PostDetailModal
+          post={editingPost}
+          captions={captions}
+          extraServices={extraServices}
+          onClose={() => setEditingPost(null)}
+          onStatusChange={(postStatus) => { updatePost(editingPost.id, { postStatus }); setEditingPost(p => ({ ...p, postStatus })); }}
+          onProductionStatusChange={(status) => { updatePost(editingPost.id, { status }); setEditingPost(p => ({ ...p, status })); }}
+          onReschedule={() => setRescheduling(editingPost)}
+          onRemove={() => removePost(editingPost.id)}
+        />
+      )}
+
+      {rescheduling && (
+        <SchedulerPostModal
+          editingPost={rescheduling}
+          captions={captions} setCaptions={setCaptions}
+          templates={templates} setTemplates={setTemplates}
+          majorServices={majorServices} minorServices={minorServices}
+          onClose={() => { setRescheduling(null); setEditingPost(null); }}
+          onSave={(req) => { updatePost(req.id, req); setRescheduling(null); setEditingPost(null); }}
+          onRemove={() => { removePost(rescheduling.id); setRescheduling(null); }}
+        />
+      )}
+
+      {addServiceOpen && <AddServiceModal onClose={() => setAddServiceOpen(false)} onAdd={addService} />}
+    </div>
+  );
+}
+
+function PostDetailModal({ post, captions, extraServices, onClose, onStatusChange, onProductionStatusChange, onReschedule, onRemove }) {
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const ch = CHANNELS.find(c => c.id === post.channel);
+  const svc = primaryService(post.services, extraServices.major);
+  const linkedCaption = captions.find(c => c.id === post.linkedCaptionId);
+  const hasCaption = !!linkedCaption;
+  const hasCreative = !!post.creativeRef;
+  const readyLabel = hasCaption && hasCreative ? "Ready to post" : !hasCaption && !hasCreative ? "Needs caption & creative" : !hasCaption ? "Needs caption" : "Needs creative reference";
+  const readyColor = hasCaption && hasCreative ? "#146356" : "#C4544A";
+
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={{ ...modal, width: 560 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 12, height: 12, borderRadius: "50%", background: svc.color, flexShrink: 0 }} />
+            <div className="disp" style={{ fontSize: 19, fontWeight: 600 }}>{post.title}</div>
+          </div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: 12, color: "#5B675F", marginBottom: 14 }}>{svc.name} · {ch?.name} · {post.creativeType} · Scheduled for {post.scheduledDate}</div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: readyColor + "14", color: readyColor, borderRadius: 8, padding: "8px 12px", fontSize: 12, fontWeight: 700, marginBottom: 14 }}>
+          <ShieldCheck size={14} /> {readyLabel}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={label}>Post status</label>
+            <select value={post.postStatus || "Pending"} onChange={e => onStatusChange(e.target.value)} style={{ ...inputStyle, width: "100%", color: POST_STATUS_COLOR[post.postStatus || "Pending"], fontWeight: 700 }}>
+              {POST_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={label}>Production status</label>
+            <select value={post.status} onChange={e => onProductionStatusChange(e.target.value)} style={{ ...inputStyle, width: "100%", color: STATUS_COLOR[post.status], fontWeight: 700 }}>
+              {STATUS.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#5B675F", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.3 }}>Caption</div>
+        {linkedCaption ? (
+          <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", background: "#F5F6F1", borderRadius: 8, padding: 12, marginBottom: 16 }}>{linkedCaption.textEn}</div>
+        ) : (
+          <div style={{ fontSize: 12, color: "#9AA39B", marginBottom: 16 }}>No caption linked yet — reschedule/edit this post to attach one.</div>
+        )}
+
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#5B675F", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.3 }}>Creative reference</div>
+        {post.creativeRef ? (
+          <a href={post.creativeRef} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#146356", fontWeight: 600, wordBreak: "break-all", display: "block", marginBottom: 20 }}>{post.creativeRef} →</a>
+        ) : (
+          <div style={{ fontSize: 12, color: "#9AA39B", marginBottom: 20 }}>No reference link attached yet.</div>
+        )}
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onReschedule} style={{ ...primaryBtn, flex: 1, justifyContent: "center" }}><Pencil size={13} /> Reschedule / Edit</button>
+          {!confirmRemove ? (
+            <button onClick={() => setConfirmRemove(true)} style={{ ...primaryBtn, flex: 1, justifyContent: "center", background: "#fff", color: "#C4544A", border: "1px solid #C4544A" }}><Trash2 size={13} /> Remove</button>
+          ) : (
+            <button onClick={onRemove} style={{ ...primaryBtn, flex: 1, justifyContent: "center", background: "#C4544A" }}>Confirm remove?</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddServiceModal({ onClose, onAdd }) {
+  const [type, setType] = useState("major");
+  const [name, setName] = useState("");
+  return (
+    <div style={overlay}>
+      <div style={modal}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>Add Service <span style={{ fontSize: 11, fontWeight: 600, color: "#E8A33D", background: "#E8A33D1A", padding: "2px 8px", borderRadius: 10, marginLeft: 6 }}>Admin</span></div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
+        </div>
+        <label style={label}>Type</label>
+        <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+          <button onClick={() => setType("major")} style={pillBtn(type === "major")}>Major</button>
+          <button onClick={() => setType("minor")} style={pillBtn(type === "minor")}>Minor</button>
+        </div>
+        <label style={label}>Service name</label>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. NCLEX New Zealand" style={{ ...inputStyle, width: "100%", marginBottom: 20 }} />
+        <button
+          disabled={!name.trim()}
+          onClick={() => { onAdd(type, name.trim()); onClose(); }}
+          style={{ ...primaryBtn, width: "100%", justifyContent: "center", opacity: !name.trim() ? 0.5 : 1 }}
+        >Add Service</button>
+      </div>
     </div>
   );
 }
 
 /* ---------------------------------- SCHEDULER POST MODAL (with caption container) ---------------------------------- */
 
-function SchedulerPostModal({ onClose, onSave, initialDate, captions, setCaptions, templates }) {
-  const [title, setTitle] = useState("");
+function SchedulerPostModal({ onClose, onSave, onRemove, initialDate, editingPost, captions, setCaptions, templates, setTemplates, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES }) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [title, setTitle] = useState(editingPost?.title || "");
   const [serviceType, setServiceType] = useState("major");
-  const [services, setServices] = useState([]);
-  const [creativeType, setCreativeType] = useState(CREATIVE_TYPES[0]);
-  const [channel, setChannel] = useState(CHANNELS[0].id);
-  const [scheduledDate, setScheduledDate] = useState(initialDate || new Date().toISOString().slice(0, 10));
-  const [creativeRef, setCreativeRef] = useState("");
-  const list = serviceType === "major" ? MAJOR_SERVICES : MINOR_SERVICES;
+  const [services, setServices] = useState(editingPost?.services || []);
+  const [creativeType, setCreativeType] = useState(editingPost?.creativeType || CREATIVE_TYPES[0]);
+  const [channel, setChannel] = useState(editingPost?.channel || CHANNELS[0].id);
+  const [scheduledDate, setScheduledDate] = useState(editingPost?.scheduledDate || initialDate || todayStr);
+  const [creativeRef, setCreativeRef] = useState(editingPost?.creativeRef || "");
+  const [postStatus, setPostStatus] = useState(editingPost?.postStatus || "Pending");
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const list = serviceType === "major" ? majorServices : minorServices;
 
-  const [linkedCaptionId, setLinkedCaptionId] = useState("");
-  const linkedCaption = captions.find(c => c.id === linkedCaptionId);
+  const [linkedCaptionId, setLinkedCaptionId] = useState(editingPost?.linkedCaptionId || "");
 
   const toggleService = (s) => setServices(cur => cur.includes(s) ? cur.filter(x => x !== s) : [...cur, s]);
 
+  const handleDateChange = (val) => {
+    if (editingPost && val !== editingPost.scheduledDate && postStatus === "Pending") setPostStatus("Rescheduled");
+    setScheduledDate(val);
+  };
+
   const save = () => {
     onSave({
-      id: uid(), title, services, creativeType, channel, scheduledDate, linkedCaptionId, creativeRef,
-      status: "Pending", dateLogged: new Date().toISOString().slice(0, 10),
+      id: editingPost?.id || uid(), title, services, creativeType, channel, scheduledDate, linkedCaptionId, creativeRef, postStatus,
+      status: editingPost?.status || "Pending",
+      dateLogged: editingPost?.dateLogged || new Date().toISOString().slice(0, 10),
     });
   };
 
@@ -1316,7 +1515,7 @@ function SchedulerPostModal({ onClose, onSave, initialDate, captions, setCaption
     <div style={overlay}>
       <div style={{ ...modal, width: 560 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>New Scheduled Post</div>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>{editingPost ? "Edit Scheduled Post" : "New Scheduled Post"}</div>
           <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
         </div>
 
@@ -1326,7 +1525,7 @@ function SchedulerPostModal({ onClose, onSave, initialDate, captions, setCaption
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
           <div>
             <label style={label}>Scheduled date</label>
-            <input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
+            <input type="date" min={todayStr} value={scheduledDate} onChange={e => handleDateChange(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
           </div>
           <div>
             <label style={label}>Channel</label>
@@ -1334,10 +1533,22 @@ function SchedulerPostModal({ onClose, onSave, initialDate, captions, setCaption
           </div>
         </div>
 
-        <label style={label}>Creative type</label>
-        <select value={creativeType} onChange={e => setCreativeType(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 12 }}>
-          {CREATIVE_TYPES.map(c => <option key={c}>{c}</option>)}
-        </select>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <div>
+            <label style={label}>Creative type</label>
+            <select value={creativeType} onChange={e => setCreativeType(e.target.value)} style={{ ...inputStyle, width: "100%" }}>
+              {CREATIVE_TYPES.map(c => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+          {editingPost && (
+            <div>
+              <label style={label}>Post status</label>
+              <select value={postStatus} onChange={e => setPostStatus(e.target.value)} style={{ ...inputStyle, width: "100%", color: POST_STATUS_COLOR[postStatus], fontWeight: 700 }}>
+                {POST_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
 
         <label style={label}>Service tags</label>
         <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
@@ -1349,7 +1560,7 @@ function SchedulerPostModal({ onClose, onSave, initialDate, captions, setCaption
         </div>
 
         <CaptionContainer
-          captions={captions} setCaptions={setCaptions} templates={templates}
+          captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates}
           linkedCaptionId={linkedCaptionId} setLinkedCaptionId={setLinkedCaptionId}
           defaults={{ services, creativeType, channel }}
         />
@@ -1357,22 +1568,35 @@ function SchedulerPostModal({ onClose, onSave, initialDate, captions, setCaption
         <label style={{ ...label, marginTop: 14 }}>Creative/image reference link (optional)</label>
         <input value={creativeRef} onChange={e => setCreativeRef(e.target.value)} placeholder="Paste a link to the creative file for now" style={{ ...inputStyle, width: "100%", marginBottom: 20 }} />
 
-        <button
-          disabled={!title || services.length === 0}
-          onClick={save}
-          style={{ ...primaryBtn, width: "100%", justifyContent: "center", opacity: (!title || services.length === 0) ? 0.5 : 1 }}
-        >Save Scheduled Post</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            disabled={!title || services.length === 0}
+            onClick={save}
+            style={{ ...primaryBtn, flex: 1, justifyContent: "center", opacity: (!title || services.length === 0) ? 0.5 : 1 }}
+          >{editingPost ? "Save Changes" : "Save Scheduled Post"}</button>
+          {editingPost && onRemove && (
+            !confirmRemove ? (
+              <button onClick={() => setConfirmRemove(true)} style={{ ...primaryBtn, background: "#fff", color: "#C4544A", border: "1px solid #C4544A" }}><Trash2 size={14} /></button>
+            ) : (
+              <button onClick={onRemove} style={{ ...primaryBtn, background: "#C4544A" }}>Confirm?</button>
+            )
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-function CaptionContainer({ captions, setCaptions, templates, linkedCaptionId, setLinkedCaptionId, defaults }) {
-  const [mode, setMode] = useState("library"); // library | template | write
+function CaptionContainer({ captions, setCaptions, templates, setTemplates, linkedCaptionId, setLinkedCaptionId, defaults }) {
+  const [mode, setMode] = useState("library");
   const [search, setSearch] = useState("");
   const [draftEn, setDraftEn] = useState("");
   const [draftFil, setDraftFil] = useState("");
   const [draftHashtags, setDraftHashtags] = useState("");
+  const [editingCaptionId, setEditingCaptionId] = useState(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [editingLinked, setEditingLinked] = useState(false);
+  const [templateEditTarget, setTemplateEditTarget] = useState(null);
   const linked = captions.find(c => c.id === linkedCaptionId);
 
   const filteredLib = captions.filter(c => c.brief.toLowerCase().includes(search.toLowerCase()) || c.textEn.toLowerCase().includes(search.toLowerCase()));
@@ -1381,31 +1605,76 @@ function CaptionContainer({ captions, setCaptions, templates, linkedCaptionId, s
     const t = templates.find(x => x.id === id);
     if (!t) return;
     setDraftEn(t.textEn); setDraftFil(t.textFil || ""); setDraftHashtags((t.hashtags || []).join(", "));
+    setEditingCaptionId(null);
+    setReviewing(true);
   };
 
-  const attachNew = () => {
-    const newCap = {
-      id: uid(), brief: defaults.services[0] ? `${defaults.services[0]} — ${defaults.creativeType}` : defaults.creativeType,
-      services: defaults.services, creativeType: defaults.creativeType, channel: defaults.channel, campaign: "",
-      textEn: draftEn, textFil: draftFil, hashtags: draftHashtags.split(",").map(h => h.trim()).filter(Boolean),
-      status: "Draft", dateCreated: new Date().toISOString().slice(0, 10),
-    };
-    setCaptions(cs => [...cs, newCap]);
-    setLinkedCaptionId(newCap.id);
-    setDraftEn(""); setDraftFil(""); setDraftHashtags("");
+  const openLibraryForEdit = (c) => {
+    setDraftEn(c.textEn); setDraftFil(c.textFil || ""); setDraftHashtags((c.hashtags || []).join(", "));
+    setEditingCaptionId(c.id);
+    setReviewing(true);
+  };
+
+  const attach = (updateOriginal) => {
+    const hashtags = draftHashtags.split(",").map(h => h.trim()).filter(Boolean);
+    if (updateOriginal && editingCaptionId) {
+      setCaptions(cs => cs.map(c => c.id === editingCaptionId ? { ...c, textEn: draftEn, textFil: draftFil, hashtags } : c));
+      setLinkedCaptionId(editingCaptionId);
+    } else {
+      const newCap = {
+        id: uid(), brief: defaults.services[0] ? `${defaults.services[0]} — ${defaults.creativeType}` : defaults.creativeType,
+        services: defaults.services, creativeType: defaults.creativeType, channel: defaults.channel, campaign: "",
+        textEn: draftEn, textFil: draftFil, hashtags, status: "Draft", dateCreated: new Date().toISOString().slice(0, 10),
+      };
+      setCaptions(cs => [...cs, newCap]);
+      setLinkedCaptionId(newCap.id);
+    }
+    setDraftEn(""); setDraftFil(""); setDraftHashtags(""); setReviewing(false); setEditingCaptionId(null);
+  };
+
+  const saveLinkedEdit = () => {
+    setCaptions(cs => cs.map(c => c.id === linked.id ? { ...c, textEn: draftEn, textFil: draftFil, hashtags: draftHashtags.split(",").map(h => h.trim()).filter(Boolean) } : c));
+    setEditingLinked(false);
   };
 
   return (
     <div style={{ background: "#F5F6F1", border: "1px solid #E3E6E0", borderRadius: 9, padding: 12 }}>
       <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Caption</div>
 
-      {linked ? (
+      {linked && !editingLinked ? (
         <div style={{ background: "#fff", border: "1px solid #D8DDD5", borderRadius: 7, padding: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
             <div style={{ fontSize: 11.5, fontWeight: 700 }}>{linked.brief}</div>
-            <button onClick={() => setLinkedCaptionId("")} style={{ border: "none", background: "transparent", color: "#C4544A" }}><X size={13} /></button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => { setDraftEn(linked.textEn); setDraftFil(linked.textFil || ""); setDraftHashtags((linked.hashtags || []).join(", ")); setEditingLinked(true); }} style={{ border: "none", background: "transparent", color: "#146356" }}><Pencil size={12} /></button>
+              <button onClick={() => setLinkedCaptionId("")} style={{ border: "none", background: "transparent", color: "#C4544A" }}><X size={13} /></button>
+            </div>
           </div>
           <div style={{ fontSize: 11.5, whiteSpace: "pre-wrap", color: "#0E2B27" }}>{linked.textEn}</div>
+        </div>
+      ) : linked && editingLinked ? (
+        <div style={{ background: "#fff", border: "1px solid #D8DDD5", borderRadius: 7, padding: 10 }}>
+          <RichCaptionField value={draftEn} onChange={setDraftEn} placeholder="Caption (English)" rows={3} />
+          <textarea value={draftFil} onChange={e => setDraftFil(e.target.value)} placeholder="Caption (Filipino) — optional" rows={2} style={{ ...inputStyle, width: "100%", marginBottom: 6, resize: "vertical", fontSize: 12 }} />
+          <input value={draftHashtags} onChange={e => setDraftHashtags(e.target.value)} placeholder="Hashtags, comma-separated" style={{ ...inputStyle, width: "100%", marginBottom: 8, fontSize: 12 }} />
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={saveLinkedEdit} style={{ ...primaryBtn, fontSize: 12 }}>Save changes</button>
+            <button onClick={() => setEditingLinked(false)} style={{ ...pillBtn(false), padding: "6px 12px" }}>Cancel</button>
+          </div>
+        </div>
+      ) : reviewing ? (
+        <div style={{ background: "#fff", border: "1px solid #D8DDD5", borderRadius: 7, padding: 10 }}>
+          <RichCaptionField value={draftEn} onChange={setDraftEn} placeholder="Caption (English)" rows={3} />
+          <textarea value={draftFil} onChange={e => setDraftFil(e.target.value)} placeholder="Caption (Filipino) — optional" rows={2} style={{ ...inputStyle, width: "100%", marginBottom: 6, resize: "vertical", fontSize: 12 }} />
+          <input value={draftHashtags} onChange={e => setDraftHashtags(e.target.value)} placeholder="Hashtags, comma-separated" style={{ ...inputStyle, width: "100%", marginBottom: 8, fontSize: 12 }} />
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {editingCaptionId && <button onClick={() => attach(true)} disabled={!draftEn} style={{ ...primaryBtn, fontSize: 12, opacity: !draftEn ? 0.5 : 1 }}>Attach & update original</button>}
+            <button onClick={() => attach(false)} disabled={!draftEn} style={{ ...primaryBtn, fontSize: 12, opacity: !draftEn ? 0.5 : 1, background: editingCaptionId ? "#fff" : "#146356", color: editingCaptionId ? "#146356" : "#fff", border: editingCaptionId ? "1px solid #146356" : "none" }}>
+              {editingCaptionId ? "Attach as new copy" : "Attach this caption"}
+            </button>
+            <button onClick={() => { setReviewing(false); setEditingCaptionId(null); }} style={{ ...pillBtn(false), padding: "6px 12px" }}>Cancel</button>
+          </div>
+          <div style={{ fontSize: 10, color: "#9AA39B", marginTop: 5 }}>{editingCaptionId ? "Editing a library caption — choose whether to overwrite it or save a separate copy." : "Saves to the Caption Library too, as a Draft."}</div>
         </div>
       ) : (
         <>
@@ -1424,10 +1693,13 @@ function CaptionContainer({ captions, setCaptions, templates, linkedCaptionId, s
               <div style={{ maxHeight: 130, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
                 {filteredLib.length === 0 && <div style={{ fontSize: 11, color: "#9AA39B", padding: "6px 0" }}>No captions found — try Template or Write new.</div>}
                 {filteredLib.map(c => (
-                  <button key={c.id} onClick={() => setLinkedCaptionId(c.id)} style={{ textAlign: "left", background: "#fff", border: "1px solid #D8DDD5", borderRadius: 6, padding: 8 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700 }}>{c.brief}</div>
-                    <div style={{ fontSize: 10.5, color: "#5B675F", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.textEn}</div>
-                  </button>
+                  <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <button onClick={() => { setLinkedCaptionId(c.id); }} style={{ flex: 1, textAlign: "left", background: "#fff", border: "1px solid #D8DDD5", borderRadius: 6, padding: 8 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700 }}>{c.brief}</div>
+                      <div style={{ fontSize: 10.5, color: "#5B675F", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.textEn}</div>
+                    </button>
+                    <button onClick={() => openLibraryForEdit(c)} title="Edit before using" style={{ border: "1px solid #D8DDD5", background: "#fff", borderRadius: 6, padding: 8, color: "#146356" }}><Pencil size={12} /></button>
+                  </div>
                 ))}
               </div>
             </>
@@ -1436,15 +1708,18 @@ function CaptionContainer({ captions, setCaptions, templates, linkedCaptionId, s
           {(mode === "template" || mode === "write") && (
             <>
               {mode === "template" && (
-                <select onChange={e => e.target.value && applyTemplate(e.target.value)} defaultValue="" style={{ ...inputStyle, width: "100%", marginBottom: 8, fontSize: 12 }}>
-                  <option value="">Choose a template…</option>
-                  {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
+                <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
+                  <select onChange={e => e.target.value && applyTemplate(e.target.value)} defaultValue="" style={{ ...inputStyle, flex: 1, fontSize: 12 }}>
+                    <option value="">Choose a template…</option>
+                    {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                  <button type="button" onClick={() => setTemplateEditTarget({ id: uid(), name: "", textEn: "", textFil: "", hashtags: [] })} title="New template" style={{ border: "1px solid #D8DDD5", background: "#fff", borderRadius: 6, padding: "0 8px", color: "#146356" }}><Plus size={13} /></button>
+                </div>
               )}
-              <textarea value={draftEn} onChange={e => setDraftEn(e.target.value)} placeholder="Caption (English)" rows={3} style={{ ...inputStyle, width: "100%", marginBottom: 6, resize: "vertical", fontSize: 12 }} />
+              <RichCaptionField value={draftEn} onChange={setDraftEn} placeholder="Caption (English)" rows={3} />
               <textarea value={draftFil} onChange={e => setDraftFil(e.target.value)} placeholder="Caption (Filipino) — optional" rows={2} style={{ ...inputStyle, width: "100%", marginBottom: 6, resize: "vertical", fontSize: 12 }} />
               <input value={draftHashtags} onChange={e => setDraftHashtags(e.target.value)} placeholder="Hashtags, comma-separated" style={{ ...inputStyle, width: "100%", marginBottom: 8, fontSize: 12 }} />
-              <button onClick={attachNew} disabled={!draftEn} style={{ ...primaryBtn, opacity: !draftEn ? 0.5 : 1, fontSize: 12 }}>
+              <button onClick={() => attach(false)} disabled={!draftEn} style={{ ...primaryBtn, opacity: !draftEn ? 0.5 : 1, fontSize: 12 }}>
                 <Plus size={12} /> Attach this caption
               </button>
               <div style={{ fontSize: 10, color: "#9AA39B", marginTop: 5 }}>Saves to the Caption Library too, as a Draft.</div>
@@ -1452,9 +1727,53 @@ function CaptionContainer({ captions, setCaptions, templates, linkedCaptionId, s
           )}
         </>
       )}
+
+      {templateEditTarget && (
+        <TemplateEditModal
+          template={templateEditTarget}
+          onClose={() => setTemplateEditTarget(null)}
+          onSave={(t) => {
+            setTemplates(ts => ts.some(x => x.id === t.id) ? ts.map(x => x.id === t.id ? t : x) : [...ts, t]);
+            setTemplateEditTarget(null);
+          }}
+        />
+      )}
     </div>
   );
 }
+
+function TemplateEditModal({ template, onClose, onSave }) {
+  const [name, setName] = useState(template.name);
+  const [textEn, setTextEn] = useState(template.textEn);
+  const [textFil, setTextFil] = useState(template.textFil || "");
+  const [hashtagsInput, setHashtagsInput] = useState((template.hashtags || []).join(", "));
+  const isNew = !template.name && !template.textEn;
+
+  return (
+    <div style={overlay}>
+      <div style={modal}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>{isNew ? "New Template" : "Edit Template"}</div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
+        </div>
+        <label style={label}>Template name</label>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Weekly Trivia Format" style={{ ...inputStyle, width: "100%", marginBottom: 12 }} />
+        <label style={label}>Caption text — use {"{Placeholders}"} for parts that change</label>
+        <RichCaptionField value={textEn} onChange={setTextEn} placeholder={"e.g. It's {ServiceName} trivia day! {CTA}"} rows={4} />
+        <label style={label}>Filipino version (optional)</label>
+        <textarea value={textFil} onChange={e => setTextFil(e.target.value)} rows={3} style={{ ...inputStyle, width: "100%", marginBottom: 12, resize: "vertical" }} />
+        <label style={label}><Hash size={11} style={{ verticalAlign: -1 }} /> Default hashtags (comma-separated)</label>
+        <input value={hashtagsInput} onChange={e => setHashtagsInput(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 20 }} />
+        <button
+          disabled={!name || !textEn}
+          onClick={() => onSave({ id: template.id, name, textEn, textFil, hashtags: hashtagsInput.split(",").map(h => h.trim()).filter(Boolean) })}
+          style={{ ...primaryBtn, width: "100%", justifyContent: "center", opacity: (!name || !textEn) ? 0.5 : 1 }}
+        >{isNew ? "Save Template" : "Save Changes"}</button>
+      </div>
+    </div>
+  );
+}
+
 
 /* ---------------------------------- SHARED UI ---------------------------------- */
 
@@ -1469,6 +1788,113 @@ function Header({ title, sub, action }) {
     </div>
   );
 }
+const toolbarBtn = { border: "1px solid #D8DDD5", background: "#fff", borderRadius: 5, padding: "3px 6px", color: "#0E2B27", display: "flex" };
+
+function RichCaptionField({ value, onChange, placeholder, rows = 3 }) {
+  const taRef = useRef(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+
+  const applyTransform = (fn) => {
+    const ta = taRef.current;
+    if (!ta) { onChange(fn(value)); return; }
+    const start = ta.selectionStart, end = ta.selectionEnd;
+    if (start === end) { onChange(fn(value)); return; }
+    const transformed = fn(value.slice(start, end));
+    const next = value.slice(0, start) + transformed + value.slice(end);
+    onChange(next);
+    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(start, start + transformed.length); });
+  };
+
+  const insertEmoji = (emoji) => {
+    const ta = taRef.current;
+    if (!ta) { onChange(value + emoji); setEmojiOpen(false); return; }
+    const start = ta.selectionStart, end = ta.selectionEnd;
+    const next = value.slice(0, start) + emoji + value.slice(end);
+    onChange(next);
+    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(start + emoji.length, start + emoji.length); });
+    setEmojiOpen(false);
+  };
+
+  const titleCase = (s) => s.replace(/\w\S*/g, (t) => t[0].toUpperCase() + t.slice(1).toLowerCase());
+
+  return (
+    <div style={{ marginBottom: 6 }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 4, position: "relative" }}>
+        <button type="button" onClick={() => applyTransform(toUnicodeBold)} title="Bold (select text first)" style={toolbarBtn}><Bold size={12} /></button>
+        <button type="button" onClick={() => applyTransform(toUnicodeItalic)} title="Italic (select text first)" style={toolbarBtn}><Italic size={12} /></button>
+        <button type="button" onClick={() => applyTransform((s) => s.toUpperCase())} title="UPPERCASE" style={toolbarBtn}><CaseUpper size={12} /></button>
+        <button type="button" onClick={() => applyTransform((s) => s.toLowerCase())} title="lowercase" style={toolbarBtn}><CaseLower size={12} /></button>
+        <button type="button" onClick={() => applyTransform(titleCase)} title="Title Case" style={toolbarBtn}><CaseSensitive size={12} /></button>
+        <button type="button" onClick={() => setEmojiOpen(v => !v)} title="Insert emoji" style={toolbarBtn}><Smile size={12} /></button>
+        {emojiOpen && (
+          <div style={{ position: "absolute", top: 24, left: 0, background: "#fff", border: "1px solid #D8DDD5", borderRadius: 8, padding: 6, display: "flex", flexWrap: "wrap", gap: 4, width: 180, zIndex: 30, boxShadow: "0 6px 18px rgba(0,0,0,0.15)" }}>
+            {CAPTION_EMOJIS.map(e => <button type="button" key={e} onClick={() => insertEmoji(e)} style={{ border: "none", background: "transparent", fontSize: 16, padding: 2, cursor: "pointer" }}>{e}</button>)}
+          </div>
+        )}
+      </div>
+      <textarea ref={taRef} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={rows} style={{ ...inputStyle, width: "100%", resize: "vertical", fontSize: 12 }} />
+    </div>
+  );
+}
+
+
+function FlexibleChart({ title, data, color = "#146356", empty, defaultType = "bar" }) {
+  const [chartType, setChartType] = useState(defaultType);
+  const top = data[0];
+  return (
+    <Card>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>{title}</div>
+          {top && <div style={{ fontSize: 11, color: "#5B675F", marginTop: 2 }}>Top: <b style={{ color: "#0E2B27" }}>{top.name}</b> ({top.count})</div>}
+        </div>
+        <div style={{ display: "flex", gap: 4 }}>
+          {["bar", "pie", "line"].map(t => (
+            <button key={t} onClick={() => setChartType(t)} style={{
+              fontSize: 10, padding: "3px 8px", borderRadius: 10, border: `1px solid ${chartType === t ? color : "#D8DDD5"}`,
+              background: chartType === t ? color : "#fff", color: chartType === t ? "#fff" : "#5B675F", fontWeight: 600, textTransform: "capitalize",
+            }}>{t}</button>
+          ))}
+        </div>
+      </div>
+
+      {data.length === 0 ? <Empty text={empty} /> : (
+        <ResponsiveContainer width="100%" height={260}>
+          {chartType === "bar" ? (
+            <BarChart data={data.slice(0, 8)} layout="vertical" margin={{ left: 8, right: 24 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 11, fill: "#5B675F" }} allowDecimals={false} />
+              <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 11, fill: "#0E2B27" }} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} />
+              <Bar dataKey="count" fill={color} radius={[0, 4, 4, 0]} barSize={14}>
+                <LabelList dataKey="count" position="right" style={{ fontSize: 10.5, fill: "#0E2B27", fontWeight: 600 }} />
+              </Bar>
+            </BarChart>
+          ) : chartType === "line" ? (
+            <LineChart data={data.slice(0, 10)} margin={{ left: 0, right: 16, top: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" />
+              <XAxis dataKey="name" tick={{ fontSize: 9.5, fill: "#5B675F" }} interval={0} angle={-25} textAnchor="end" height={60} />
+              <YAxis tick={{ fontSize: 11, fill: "#5B675F" }} allowDecimals={false} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} />
+              <Line type="monotone" dataKey="count" stroke={color} strokeWidth={2.5} dot={{ r: 3 }}>
+                <LabelList dataKey="count" position="top" style={{ fontSize: 10, fill: "#0E2B27", fontWeight: 600 }} />
+              </Line>
+            </LineChart>
+          ) : (
+            <PieChart>
+              <Pie data={data} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={85}
+                label={({ name, count }) => `${name} (${count})`} labelLine={{ stroke: "#D8DDD5" }} style={{ fontSize: 10 }}>
+                {data.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+              </Pie>
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} />
+            </PieChart>
+          )}
+        </ResponsiveContainer>
+      )}
+    </Card>
+  );
+}
+
 function Card({ title, children, style }) {
   return (
     <div style={{ background: "#fff", border: "1px solid #E3E6E0", borderRadius: 10, padding: 18, ...style }}>
