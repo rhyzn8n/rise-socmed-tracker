@@ -24,7 +24,7 @@ const EXTRA_MAJOR_COLOR_POOL = ["#7A6FB0", "#4C8FBD", "#A8763E", "#5C8A3A", "#8A
 const PIE_COLORS = ["#146356", "#E8A33D", "#4C8C6B", "#B0538A", "#3E7CB1", "#C4544A", "#2E7D6B", "#9AA39B", "#0E2B27"];
 // Only these login emails are ever treated as Admin — a code-level lock, same pattern as Rise V1.
 // Admin cannot be granted through the app UI; edit this list and redeploy to change it.
-const ADMIN_EMAILS = ["YOUR_ADMIN_EMAIL@example.com"];
+const ADMIN_EMAILS = ["ryemarketing20@gmail.com"];
 const MAJOR_SERVICE_COLOR = {
   "NCLEX Australia": "#146356",
   "NCLEX Canada": "#3E7CB1",
