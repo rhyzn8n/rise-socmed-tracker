@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { db, auth } from "./firebase";
+import { doc, getDoc, setDoc } from "firebase/firestore";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import {
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, LineChart, Line, Legend
@@ -57,27 +60,41 @@ export default function RiseSocMedTracker() {
   const [targets, setTargets] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
-  // NOTE: storage is temporary and in-memory only until Firebase is wired in (Step 3).
-  // window.storage only exists inside Claude's artifact preview, so every call is guarded here.
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+
   useEffect(() => {
-    (async () => {
-      try {
-        if (!window.storage) return;
-        const [r, c, t] = await Promise.all([
-          window.storage.get("requests").catch(() => null),
-          window.storage.get("channelStats").catch(() => null),
-          window.storage.get("targets").catch(() => null),
-        ]);
-        if (r) setRequests(JSON.parse(r.value));
-        if (c) setChannelStats(JSON.parse(c.value));
-        if (t) setTargets(JSON.parse(t.value));
-      } finally { setLoaded(true); }
-    })();
+    const unsub = onAuthStateChanged(auth, (u) => { setUser(u); setAuthChecked(true); });
+    return unsub;
   }, []);
 
-  useEffect(() => { if (loaded && window.storage) window.storage.set("requests", JSON.stringify(requests)).catch(() => {}); }, [requests, loaded]);
-  useEffect(() => { if (loaded && window.storage) window.storage.set("channelStats", JSON.stringify(channelStats)).catch(() => {}); }, [channelStats, loaded]);
-  useEffect(() => { if (loaded && window.storage) window.storage.set("targets", JSON.stringify(targets)).catch(() => {}); }, [targets, loaded]);
+  // Load from Firestore once signed in
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const [rSnap, cSnap, tSnap] = await Promise.all([
+          getDoc(doc(db, "riseSocMedData", "requests")),
+          getDoc(doc(db, "riseSocMedData", "channelStats")),
+          getDoc(doc(db, "riseSocMedData", "targets")),
+        ]);
+        if (rSnap.exists()) setRequests(rSnap.data().value || []);
+        if (cSnap.exists()) setChannelStats(cSnap.data().value || {});
+        if (tSnap.exists()) setTargets(tSnap.data().value || []);
+      } finally { setLoaded(true); }
+    })();
+  }, [user]);
+
+  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "requests"), { value: requests }).catch(() => {}); }, [requests, loaded, user]);
+  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "channelStats"), { value: channelStats }).catch(() => {}); }, [channelStats, loaded, user]);
+  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "targets"), { value: targets }).catch(() => {}); }, [targets, loaded, user]);
+
+  if (!authChecked) {
+    return <div style={{ padding: 40, fontFamily: "'Inter',sans-serif", color: "#5B675F" }}>Loading…</div>;
+  }
+  if (!user) {
+    return <Login />;
+  }
 
   const NAV = [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -118,6 +135,10 @@ export default function RiseSocMedTracker() {
             </button>
           );
         })}
+        <div style={{ marginTop: "auto", paddingTop: 20, borderTop: "1px solid #1D4038", fontSize: 11 }}>
+          <div style={{ color: "#B7C4BF", marginBottom: 6, wordBreak: "break-all" }}>{user.email}</div>
+          <button onClick={() => signOut(auth)} style={{ border: "none", background: "transparent", color: "#E8A33D", fontWeight: 600, padding: 0 }}>Sign out</button>
+        </div>
       </div>
 
       {/* MAIN */}
@@ -127,6 +148,43 @@ export default function RiseSocMedTracker() {
         {tab === "channels"  && <Channels channelStats={channelStats} setChannelStats={setChannelStats} />}
         {tab === "targets"   && <Targets targets={targets} setTargets={setTargets} requests={requests} />}
       </div>
+    </div>
+  );
+}
+
+/* ---------------------------------- LOGIN ---------------------------------- */
+
+function Login() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError(""); setBusy(true);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (err) {
+      setError("Incorrect email or password.");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div style={{ minHeight: 620, display: "flex", alignItems: "center", justifyContent: "center", background: "#0E2B27", borderRadius: 12, fontFamily: "'Inter',sans-serif" }}>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600;700&display=swap');`}</style>
+      <form onSubmit={submit} style={{ background: "#fff", borderRadius: 12, padding: 32, width: 320 }}>
+        <div style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "#0E2B27", marginBottom: 4 }}>Rise</div>
+        <div style={{ fontSize: 12, color: "#5B675F", marginBottom: 20 }}>Sign in to the social media tracker</div>
+        <input type="email" required placeholder="Email" value={email} onChange={e => setEmail(e.target.value)}
+          style={{ width: "100%", border: "1px solid #D8DDD5", borderRadius: 7, padding: "9px 10px", fontSize: 13, marginBottom: 10, outline: "none" }} />
+        <input type="password" required placeholder="Password" value={password} onChange={e => setPassword(e.target.value)}
+          style={{ width: "100%", border: "1px solid #D8DDD5", borderRadius: 7, padding: "9px 10px", fontSize: 13, marginBottom: 14, outline: "none" }} />
+        {error && <div style={{ color: "#C4544A", fontSize: 12, marginBottom: 12 }}>{error}</div>}
+        <button disabled={busy} type="submit" style={{ width: "100%", background: "#146356", color: "#fff", border: "none", borderRadius: 8, padding: "10px 0", fontSize: 13, fontWeight: 600 }}>
+          {busy ? "Signing in…" : "Sign in"}
+        </button>
+      </form>
     </div>
   );
 }
