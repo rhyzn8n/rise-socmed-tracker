@@ -11,7 +11,7 @@ import {
   ChevronDown, Filter, ArrowUp, ArrowDown, CheckCircle2, Clock,
   Circle, Search, AlertTriangle, ChevronUp, MessageSquareText, Copy, Sparkles, Wand2, Hash, FileText,
   CalendarDays, ChevronLeft, ChevronRight, Bell, Ban, RotateCcw, Pencil, Trash2, Smile,
-  Bold, Italic, CaseUpper, CaseLower, CaseSensitive, ShieldCheck, Maximize2, BarChart3, Printer, Grid2X2, PauseCircle
+  Bold, Italic, CaseUpper, CaseLower, CaseSensitive, ShieldCheck, Maximize2, BarChart3, Printer, Grid2X2, PauseCircle, ExternalLink, Image as ImageIcon
 } from "lucide-react";
 
 /* ---------------------------------- DATA ---------------------------------- */
@@ -174,6 +174,8 @@ export default function RiseSocMedTracker() {
   const [templates, setTemplates] = useState([]);
   const [extraServices, setExtraServices] = useState({ major: [...MAJOR_SERVICES], minor: [...MINOR_SERVICES] });
   const [channelsVersion, setChannelsVersion] = useState(0);
+  const [faviconUrl, setFaviconUrl] = useState("");
+  const [faviconModalOpen, setFaviconModalOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   const [user, setUser] = useState(null);
@@ -190,7 +192,7 @@ export default function RiseSocMedTracker() {
     if (!user) return;
     (async () => {
       try {
-        const [rSnap, cSnap, tSnap, capSnap, tplSnap, svcSnap, chSnap] = await Promise.all([
+        const [rSnap, cSnap, tSnap, capSnap, tplSnap, svcSnap, chSnap, favSnap] = await Promise.all([
           getDoc(doc(db, "riseSocMedData", "requests")),
           getDoc(doc(db, "riseSocMedData", "channelStats")),
           getDoc(doc(db, "riseSocMedData", "targets")),
@@ -198,6 +200,7 @@ export default function RiseSocMedTracker() {
           getDoc(doc(db, "riseSocMedData", "templates")),
           getDoc(doc(db, "riseSocMedData", "extraServices")),
           getDoc(doc(db, "riseSocMedData", "channelsList")),
+          getDoc(doc(db, "riseSocMedData", "favicon")),
         ]);
         if (rSnap.exists()) setRequests(rSnap.data().value || []);
         if (cSnap.exists()) setChannelStats(cSnap.data().value || {});
@@ -210,6 +213,7 @@ export default function RiseSocMedTracker() {
           CHANNELS.push(...chSnap.data().value);
           setChannelsVersion(v => v + 1);
         }
+        if (favSnap.exists()) setFaviconUrl(favSnap.data().value || "");
       } finally { setLoaded(true); }
     })();
   }, [user]);
@@ -221,6 +225,13 @@ export default function RiseSocMedTracker() {
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "templates"), { value: templates }).catch(() => {}); }, [templates, loaded, user]);
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "extraServices"), { value: extraServices }).catch(() => {}); }, [extraServices, loaded, user]);
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "channelsList"), { value: CHANNELS }).catch(() => {}); }, [channelsVersion, loaded, user]);
+  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "favicon"), { value: faviconUrl }).catch(() => {}); }, [faviconUrl, loaded, user]);
+  useEffect(() => {
+    if (!faviconUrl) return;
+    let link = document.querySelector("link[rel~='icon']");
+    if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
+    link.href = faviconUrl;
+  }, [faviconUrl]);
 
   const addChannel = (ch) => {
     CHANNELS.push(ch);
@@ -229,6 +240,11 @@ export default function RiseSocMedTracker() {
   const deleteChannel = (id) => {
     const idx = CHANNELS.findIndex(c => c.id === id);
     if (idx >= 0) CHANNELS.splice(idx, 1);
+    setChannelsVersion(v => v + 1);
+  };
+  const editChannel = (id, patch) => {
+    const ch = CHANNELS.find(c => c.id === id);
+    if (ch) Object.assign(ch, patch);
     setChannelsVersion(v => v + 1);
   };
 
@@ -282,14 +298,21 @@ export default function RiseSocMedTracker() {
               <div key={i} style={{ width: 4, height: h, background: "#E8A33D", borderRadius: 1, opacity: 0.5 + i * 0.15 }} />
             ))}
           </div>
-          <button onClick={() => setBellOpen(v => !v)} style={{ position: "relative", border: "none", background: "transparent", color: "#B7C4BF", padding: 2 }}>
-            <Bell size={16} />
-            {reminders.length > 0 && (
-              <span style={{ position: "absolute", top: -4, right: -4, background: "#C4544A", color: "#fff", fontSize: 9, fontWeight: 700, borderRadius: 8, minWidth: 15, height: 15, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>
-                {reminders.length}
-              </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {isAdmin && (
+              <button onClick={() => setFaviconModalOpen(true)} title="Customize favicon (Admin)" style={{ border: "none", background: "transparent", color: "#B7C4BF", padding: 2 }}>
+                <ImageIcon size={15} />
+              </button>
             )}
-          </button>
+            <button onClick={() => setBellOpen(v => !v)} style={{ position: "relative", border: "none", background: "transparent", color: "#B7C4BF", padding: 2 }}>
+              <Bell size={16} />
+              {reminders.length > 0 && (
+                <span style={{ position: "absolute", top: -4, right: -4, background: "#C4544A", color: "#fff", fontSize: 9, fontWeight: 700, borderRadius: 8, minWidth: 15, height: 15, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>
+                  {reminders.length}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
         {bellOpen && (
           <>
@@ -332,11 +355,13 @@ export default function RiseSocMedTracker() {
         </div>
       </div>
 
+      {faviconModalOpen && <FaviconModal currentUrl={faviconUrl} onSave={(url) => { setFaviconUrl(url); setFaviconModalOpen(false); }} onClose={() => setFaviconModalOpen(false)} />}
+
       {/* MAIN */}
       <div className="app-main" style={{ flex: 1, padding: "26px 32px", overflowY: "auto", maxHeight: 620 }}>
         {tab === "dashboard" && <Dashboard requests={requests} channelStats={channelStats} targets={targets} allServicesList={allServicesList} />}
         {tab === "requests"  && <Requests requests={requests} setRequests={setRequests} captions={captions} user={user} majorServices={allMajorServices} minorServices={allMinorServices} />}
-        {tab === "channels"  && <Channels channelStats={channelStats} setChannelStats={setChannelStats} addChannel={addChannel} deleteChannel={deleteChannel} channelsVersion={channelsVersion} isAdmin={isAdmin} />}
+        {tab === "channels"  && <Channels channelStats={channelStats} setChannelStats={setChannelStats} addChannel={addChannel} deleteChannel={deleteChannel} editChannel={editChannel} channelsVersion={channelsVersion} isAdmin={isAdmin} />}
         {tab === "targets"   && <Targets targets={targets} setTargets={setTargets} requests={requests} majorServices={allMajorServices} />}
         {tab === "captions"  && <Captions captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates} majorServices={allMajorServices} minorServices={allMinorServices} />}
         {tab === "scheduler" && <Scheduler requests={requests} setRequests={setRequests} captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates}
@@ -350,6 +375,32 @@ export default function RiseSocMedTracker() {
 }
 
 /* ---------------------------------- LOGIN ---------------------------------- */
+
+/* ---------------------------------- FAVICON (admin) ---------------------------------- */
+
+function FaviconModal({ currentUrl, onSave, onClose }) {
+  const [url, setUrl] = useState(currentUrl || "");
+
+  return (
+    <div style={overlay}>
+      <div style={modal}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>Customize Favicon <span style={{ fontSize: 11, fontWeight: 600, color: "#E8A33D", background: "#E8A33D1A", padding: "2px 8px", borderRadius: 10, marginLeft: 6 }}>Admin</span></div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
+        </div>
+        <label style={label}>Favicon image URL</label>
+        <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://... (.png or .ico, square works best)" style={{ ...inputStyle, width: "100%", marginBottom: 14 }} />
+        {url && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, padding: 10, background: "#F5F6F1", borderRadius: 8 }}>
+            <img src={url} alt="favicon preview" style={{ width: 32, height: 32, borderRadius: 4, border: "1px solid #D8DDD5" }} onError={e => e.target.style.visibility = "hidden"} />
+            <div style={{ fontSize: 11, color: "#5B675F" }}>Preview — applies to everyone's browser tab once saved.</div>
+          </div>
+        )}
+        <button onClick={() => onSave(url.trim())} style={{ ...primaryBtn, width: "100%", justifyContent: "center" }}>Save Favicon</button>
+      </div>
+    </div>
+  );
+}
 
 function Login() {
   const [email, setEmail] = useState("");
@@ -447,7 +498,8 @@ function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERV
               <div key={ch.id} style={{ border: "1px solid #E3E6E0", borderRadius: 9, padding: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
                   <div style={{ width: 8, height: 8, borderRadius: "50%", background: ch.color }} />
-                  <div style={{ fontSize: 12, fontWeight: 600 }}>{ch.name}</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{ch.name}</div>
+                  {ch.link && <a href={ch.link} target="_blank" rel="noreferrer" style={{ color: "#5B675F", display: "flex" }}><ExternalLink size={11} /></a>}
                 </div>
                 {last ? (
                   <>
@@ -653,7 +705,7 @@ function RequestModal({ onClose, onSave, user, majorServices = MAJOR_SERVICES, m
 
 /* ---------------------------------- CHANNELS ---------------------------------- */
 
-function Channels({ channelStats, setChannelStats, addChannel, deleteChannel, channelsVersion, isAdmin }) {
+function Channels({ channelStats, setChannelStats, addChannel, deleteChannel, editChannel, channelsVersion, isAdmin }) {
   const [selected, setSelected] = useState(CHANNELS[0]?.id);
   const [open, setOpen] = useState(false);
   const [editingRow, setEditingRow] = useState(null);
@@ -693,7 +745,7 @@ function Channels({ channelStats, setChannelStats, addChannel, deleteChannel, ch
           isAdmin && <button onClick={() => setManageOpen(true)} style={primaryBtn}><Plus size={15} /> Add Channel</button>
         } />
         <Card><Empty text="No channels yet. An admin needs to add one to get started." /></Card>
-        {manageOpen && <ChannelManagerModal onClose={() => setManageOpen(false)} onAdd={addChannel} onDelete={handleDeleteChannel} />}
+        {manageOpen && <ChannelManagerModal onClose={() => setManageOpen(false)} onAdd={addChannel} onDelete={handleDeleteChannel} onEdit={editChannel} />}
       </div>
     );
   }
@@ -721,13 +773,16 @@ function Channels({ channelStats, setChannelStats, addChannel, deleteChannel, ch
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
         {CHANNELS.map(c => (
-          <button key={c.id} onClick={() => setSelected(c.id)} style={{
-            display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 20,
-            border: `1px solid ${selected === c.id ? c.color : "#D8DDD5"}`, background: selected === c.id ? c.color : "#fff",
-            color: selected === c.id ? "#fff" : "#0E2B27", fontSize: 12, fontWeight: 600,
-          }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", background: selected === c.id ? "#fff" : c.color }} /> {c.name}
-          </button>
+          <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 3 }}>
+            <button onClick={() => setSelected(c.id)} style={{
+              display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 20,
+              border: `1px solid ${selected === c.id ? c.color : "#D8DDD5"}`, background: selected === c.id ? c.color : "#fff",
+              color: selected === c.id ? "#fff" : "#0E2B27", fontSize: 12, fontWeight: 600,
+            }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: selected === c.id ? "#fff" : c.color }} /> {c.name}
+            </button>
+            {c.link && <a href={c.link} target="_blank" rel="noreferrer" title={`Open ${c.name}`} style={{ color: "#5B675F", display: "flex" }}><ExternalLink size={13} /></a>}
+          </div>
         ))}
       </div>
 
@@ -835,7 +890,7 @@ function Channels({ channelStats, setChannelStats, addChannel, deleteChannel, ch
 
       {open && <ChannelEntryModal channel={channel} editing={editingRow} onClose={() => { setOpen(false); setEditingRow(null); }} onSave={addEntry} lastTarget={last?.targetGrowthPct ?? 1} lastEngTarget={last?.targetEngagementPct ?? ""} />}
       {bulkOpen && <BulkChannelEntryModal channelStats={channelStats} onSave={saveEntry} onClose={() => setBulkOpen(false)} />}
-      {manageOpen && <ChannelManagerModal onClose={() => setManageOpen(false)} onAdd={addChannel} onDelete={handleDeleteChannel} />}
+      {manageOpen && <ChannelManagerModal onClose={() => setManageOpen(false)} onAdd={addChannel} onDelete={handleDeleteChannel} onEdit={editChannel} />}
     </div>
   );
 }
@@ -945,36 +1000,53 @@ function BulkChannelEntryModal({ channelStats, onSave, onClose }) {
   );
 }
 
-function ChannelManagerModal({ onClose, onAdd, onDelete }) {
+function ChannelManagerModal({ onClose, onAdd, onDelete, onEdit }) {
   const [name, setName] = useState("");
   const [platform, setPlatform] = useState("Facebook");
+  const [link, setLink] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [editingLinkId, setEditingLinkId] = useState(null);
+  const [editingLinkValue, setEditingLinkValue] = useState("");
 
   const submit = () => {
     if (!name.trim()) return;
     const usedColors = CHANNELS.map(c => c.color);
     const color = EXTRA_CHANNEL_COLOR_POOL.find(c => !usedColors.includes(c)) || EXTRA_CHANNEL_COLOR_POOL[CHANNELS.length % EXTRA_CHANNEL_COLOR_POOL.length];
-    onAdd({ id: uid(), name: name.trim(), platform, color });
-    setName("");
+    onAdd({ id: uid(), name: name.trim(), platform, color, link: link.trim() });
+    setName(""); setLink("");
   };
+
+  const startEditLink = (c) => { setEditingLinkId(c.id); setEditingLinkValue(c.link || ""); };
+  const saveEditLink = () => { onEdit(editingLinkId, { link: editingLinkValue.trim() }); setEditingLinkId(null); };
 
   return (
     <div style={overlay}>
-      <div style={{ ...modal, width: 460 }}>
+      <div style={{ ...modal, width: 480 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>Manage Channels <span style={{ fontSize: 11, fontWeight: 600, color: "#E8A33D", background: "#E8A33D1A", padding: "2px 8px", borderRadius: 10, marginLeft: 6 }}>Admin</span></div>
           <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
         </div>
 
-        <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid #E3E6E0", borderRadius: 8, marginBottom: 14 }}>
+        <div style={{ maxHeight: 280, overflowY: "auto", border: "1px solid #E3E6E0", borderRadius: 8, marginBottom: 14 }}>
           {CHANNELS.map(c => (
-            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderBottom: "1px solid #EEF0EC" }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: c.color, flexShrink: 0 }} />
-              <div style={{ flex: 1, fontSize: 12.5 }}>{c.name} <span style={{ color: "#9AA39B", fontSize: 11 }}>· {c.platform}</span></div>
-              {confirmDeleteId === c.id ? (
-                <button onClick={() => { onDelete(c.id); setConfirmDeleteId(null); }} style={{ border: "none", background: "transparent", color: "#C4544A", fontSize: 10.5, fontWeight: 700 }}>Confirm?</button>
-              ) : (
-                <button onClick={() => setConfirmDeleteId(c.id)} style={{ border: "none", background: "transparent", color: "#C4544A" }}><Trash2 size={13} /></button>
+            <div key={c.id} style={{ padding: "7px 10px", borderBottom: "1px solid #EEF0EC" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: c.color, flexShrink: 0 }} />
+                <div style={{ flex: 1, fontSize: 12.5 }}>{c.name} <span style={{ color: "#9AA39B", fontSize: 11 }}>· {c.platform}</span></div>
+                {c.link && <a href={c.link} target="_blank" rel="noreferrer" style={{ color: "#146356" }}><ExternalLink size={12} /></a>}
+                <button onClick={() => startEditLink(c)} style={{ border: "none", background: "transparent", color: "#146356" }}><Pencil size={12} /></button>
+                {confirmDeleteId === c.id ? (
+                  <button onClick={() => { onDelete(c.id); setConfirmDeleteId(null); }} style={{ border: "none", background: "transparent", color: "#C4544A", fontSize: 10.5, fontWeight: 700 }}>Confirm?</button>
+                ) : (
+                  <button onClick={() => setConfirmDeleteId(c.id)} style={{ border: "none", background: "transparent", color: "#C4544A" }}><Trash2 size={13} /></button>
+                )}
+              </div>
+              {editingLinkId === c.id && (
+                <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                  <input value={editingLinkValue} onChange={e => setEditingLinkValue(e.target.value)} placeholder="https://..." style={{ ...inputStyle, flex: 1, fontSize: 12, padding: "5px 8px" }} autoFocus />
+                  <button onClick={saveEditLink} style={{ border: "none", background: "transparent", color: "#146356", fontSize: 11, fontWeight: 700 }}>Save</button>
+                  <button onClick={() => setEditingLinkId(null)} style={{ border: "none", background: "transparent", color: "#9AA39B", fontSize: 11, fontWeight: 700 }}>Cancel</button>
+                </div>
               )}
             </div>
           ))}
@@ -983,13 +1055,14 @@ function ChannelManagerModal({ onClose, onAdd, onDelete }) {
 
         <label style={label}>Add new channel</label>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. IPASS LinkedIn" style={{ ...inputStyle, width: "100%", marginBottom: 10 }} />
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
           <select value={platform} onChange={e => setPlatform(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
-            {["Facebook", "Instagram", "TikTok", "YouTube"].map(p => <option key={p}>{p}</option>)}
+            {["Facebook", "Instagram", "TikTok", "YouTube", "LinkedIn", "Other"].map(p => <option key={p}>{p}</option>)}
           </select>
           <button disabled={!name.trim()} onClick={submit} style={{ ...primaryBtn, opacity: !name.trim() ? 0.5 : 1 }}><Plus size={14} /></button>
         </div>
-        <div style={{ fontSize: 10, color: "#9AA39B", marginTop: 6 }}>Platform determines which benchmark rating scale applies (Facebook/Instagram/TikTok/YouTube).</div>
+        <input value={link} onChange={e => setLink(e.target.value)} placeholder="Channel URL (optional) — https://..." style={{ ...inputStyle, width: "100%" }} />
+        <div style={{ fontSize: 10, color: "#9AA39B", marginTop: 6 }}>Benchmark ratings currently only exist for Facebook/Instagram/TikTok/YouTube — LinkedIn and Other will show raw numbers without a Low/Good/Excellent rating until those benchmarks are added.</div>
       </div>
     </div>
   );
