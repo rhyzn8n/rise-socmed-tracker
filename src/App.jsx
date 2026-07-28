@@ -10,7 +10,7 @@ import {
   LayoutDashboard, ClipboardList, TrendingUp, Target, Plus, X,
   ChevronDown, Filter, ArrowUp, ArrowDown, CheckCircle2, Clock,
   Circle, Search, AlertTriangle, ChevronUp, MessageSquareText, Copy, Sparkles, Wand2, Hash, FileText,
-  CalendarDays, ChevronLeft, ChevronRight
+  CalendarDays, ChevronLeft, ChevronRight, Bell
 } from "lucide-react";
 
 /* ---------------------------------- DATA ---------------------------------- */
@@ -19,6 +19,16 @@ const MAJOR_SERVICES = ["NCLEX Australia","NCLEX Canada","NCLEX USA","Middle Eas
 const MINOR_SERVICES = ["NAI","Tourist Visa","Visascreen","License Endorsement","OPRA/KAPS","Australia Midwifery","ASCPi","AUS License Renewal","Branch Info","CBC","Truemerit","CPD","CVS NZ/NCNZ","FAQ/Trivia","Featured Clients","General Post","Hope Talk","Hopkins","IELTS Sced","IPASS Cares","Live Video","Medtech Middle East","MET","Motivational","NCLEX Question","NCLEX Answer","New Mexico","NNAS","PNLE","PRC","Promo","NCLEX Q&AI","Score Transfer","Study Tips/Trivia","UWORLD","US License Renewal","WES","Blog","YT Post"];
 const CREATIVE_TYPES = ["Infographics/Information","Blog Cover","Motivational Content","Promo","Reel/Video/Animation","Educational","Event","Passers","Testimonial"];
 const ALL_SERVICES = [...MAJOR_SERVICES, ...MINOR_SERVICES];
+const MAJOR_SERVICE_COLOR = {
+  "NCLEX Australia": "#146356",
+  "NCLEX Canada": "#3E7CB1",
+  "NCLEX USA": "#C4544A",
+  "Middle East": "#E8A33D",
+  "Ireland": "#4C8C6B",
+  "UKNMC/Midwife": "#B0538A",
+  "Online Review": "#0E2B27",
+};
+const MINOR_SERVICE_COLOR = "#9AA39B";
 
 const CHANNELS = [
   { id: "main",    name: "IPASS Main",                     platform: "Facebook", color: "#146356" },
@@ -56,6 +66,12 @@ function rate(platform, kind, value) {
 
 const monthLabel = (ym) => new Date(ym + "-01").toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 const uid = () => Math.random().toString(36).slice(2, 10);
+function primaryService(services) {
+  const major = (services || []).find(s => MAJOR_SERVICES.includes(s));
+  if (major) return { name: major, color: MAJOR_SERVICE_COLOR[major], isMajor: true };
+  const minor = (services || [])[0];
+  return minor ? { name: minor, color: MINOR_SERVICE_COLOR, isMajor: false } : { name: "Unassigned", color: "#C9CFC7", isMajor: false };
+}
 
 /* ---------------------------------- APP ---------------------------------- */
 
@@ -70,6 +86,7 @@ export default function RiseSocMedTracker() {
 
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
+  const [bellOpen, setBellOpen] = useState(false);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => { setUser(u); setAuthChecked(true); });
@@ -119,6 +136,11 @@ export default function RiseSocMedTracker() {
     { id: "scheduler", label: "Scheduler", icon: CalendarDays },
   ];
 
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const reminders = requests
+    .filter(r => r.scheduledDate && r.scheduledDate <= todayStr && r.status !== "Completed")
+    .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+
   return (
     <div style={{ display: "flex", minHeight: 620, fontFamily: "'Inter',sans-serif", background: "#F5F6F1", color: "#0E2B27", borderRadius: 12, overflow: "hidden", border: "1px solid #D8DDD5" }}>
       <style>{`
@@ -131,12 +153,40 @@ export default function RiseSocMedTracker() {
       `}</style>
 
       {/* SIDEBAR */}
-      <div style={{ width: 208, background: "#0E2B27", color: "#F5F6F1", padding: "22px 14px", flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 3, marginBottom: 4, paddingLeft: 6 }}>
-          {[6, 10, 14, 19].map((h, i) => (
-            <div key={i} style={{ width: 4, height: h, background: "#E8A33D", borderRadius: 1, opacity: 0.5 + i * 0.15 }} />
-          ))}
+      <div style={{ width: 208, background: "#0E2B27", color: "#F5F6F1", padding: "22px 14px", flexShrink: 0, position: "relative" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 3, paddingLeft: 6 }}>
+            {[6, 10, 14, 19].map((h, i) => (
+              <div key={i} style={{ width: 4, height: h, background: "#E8A33D", borderRadius: 1, opacity: 0.5 + i * 0.15 }} />
+            ))}
+          </div>
+          <button onClick={() => setBellOpen(v => !v)} style={{ position: "relative", border: "none", background: "transparent", color: "#B7C4BF", padding: 2 }}>
+            <Bell size={16} />
+            {reminders.length > 0 && (
+              <span style={{ position: "absolute", top: -4, right: -4, background: "#C4544A", color: "#fff", fontSize: 9, fontWeight: 700, borderRadius: 8, minWidth: 15, height: 15, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px" }}>
+                {reminders.length}
+              </span>
+            )}
+          </button>
         </div>
+        {bellOpen && (
+          <div style={{ position: "absolute", top: 46, right: 14, width: 260, background: "#fff", color: "#0E2B27", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.25)", padding: 12, zIndex: 60, maxHeight: 320, overflowY: "auto" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Reminders</div>
+            {reminders.length === 0 ? (
+              <div style={{ fontSize: 11.5, color: "#9AA39B" }}>Nothing due or overdue.</div>
+            ) : reminders.map(r => {
+              const overdue = r.scheduledDate < todayStr;
+              return (
+                <div key={r.id} style={{ borderBottom: "1px solid #EEF0EC", padding: "7px 0" }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 600 }}>{r.title}</div>
+                  <div style={{ fontSize: 10.5, color: overdue ? "#C4544A" : "#E8A33D", fontWeight: 600 }}>
+                    {overdue ? "Overdue" : "Due today"} · {r.scheduledDate}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div className="disp" style={{ fontSize: 22, fontWeight: 600, paddingLeft: 6, marginBottom: 2 }}>Rise</div>
         <div style={{ fontSize: 10.5, opacity: 0.55, paddingLeft: 6, marginBottom: 26, letterSpacing: 0.4 }}>SOCIAL MEDIA TRACKER</div>
         {NAV.map(n => {
@@ -160,11 +210,11 @@ export default function RiseSocMedTracker() {
       {/* MAIN */}
       <div style={{ flex: 1, padding: "26px 32px", overflowY: "auto", maxHeight: 620 }}>
         {tab === "dashboard" && <Dashboard requests={requests} channelStats={channelStats} targets={targets} />}
-        {tab === "requests"  && <Requests requests={requests} setRequests={setRequests} />}
+        {tab === "requests"  && <Requests requests={requests} setRequests={setRequests} captions={captions} />}
         {tab === "channels"  && <Channels channelStats={channelStats} setChannelStats={setChannelStats} />}
         {tab === "targets"   && <Targets targets={targets} setTargets={setTargets} requests={requests} />}
         {tab === "captions"  && <Captions captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates} />}
-        {tab === "scheduler" && <Scheduler requests={requests} />}
+        {tab === "scheduler" && <Scheduler requests={requests} setRequests={setRequests} captions={captions} />}
       </div>
     </div>
   );
@@ -357,7 +407,7 @@ function Dashboard({ requests, channelStats, targets }) {
 
 /* ---------------------------------- REQUESTS ---------------------------------- */
 
-function Requests({ requests, setRequests }) {
+function Requests({ requests, setRequests, captions }) {
   const [open, setOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState("All");
   const [search, setSearch] = useState("");
@@ -422,18 +472,20 @@ function Requests({ requests, setRequests }) {
         )}
       </Card>
 
-      {open && <RequestModal onClose={() => setOpen(false)} onSave={(req) => { setRequests(rs => [...rs, req]); setOpen(false); }} />}
+      {open && <RequestModal captions={captions} onClose={() => setOpen(false)} onSave={(req) => { setRequests(rs => [...rs, req]); setOpen(false); }} />}
     </div>
   );
 }
 
-function RequestModal({ onClose, onSave }) {
+function RequestModal({ onClose, onSave, initialDate, captions = [] }) {
   const [title, setTitle] = useState("");
   const [serviceType, setServiceType] = useState("major");
   const [services, setServices] = useState([]);
   const [creativeType, setCreativeType] = useState(CREATIVE_TYPES[0]);
   const [channel, setChannel] = useState(CHANNELS[0].id);
-  const [scheduledDate, setScheduledDate] = useState("");
+  const [scheduledDate, setScheduledDate] = useState(initialDate || "");
+  const [linkedCaptionId, setLinkedCaptionId] = useState("");
+  const [creativeRef, setCreativeRef] = useState("");
   const list = serviceType === "major" ? MAJOR_SERVICES : MINOR_SERVICES;
 
   const toggleService = (s) => setServices(cur => cur.includes(s) ? cur.filter(x => x !== s) : [...cur, s]);
@@ -477,11 +529,24 @@ function RequestModal({ onClose, onSave }) {
         </div>
 
         <label style={label}>Scheduled post date (optional — shows on the Scheduler)</label>
-        <input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 20 }} />
+        <input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 14 }} />
+
+        {captions.length > 0 && (
+          <>
+            <label style={label}>Linked caption (optional — pulled from Caption Builder)</label>
+            <select value={linkedCaptionId} onChange={e => setLinkedCaptionId(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 14 }}>
+              <option value="">— none —</option>
+              {captions.map(c => <option key={c.id} value={c.id}>{c.brief}</option>)}
+            </select>
+          </>
+        )}
+
+        <label style={label}>Creative/image reference link (optional)</label>
+        <input value={creativeRef} onChange={e => setCreativeRef(e.target.value)} placeholder="Paste a link to the creative file for now" style={{ ...inputStyle, width: "100%", marginBottom: 20 }} />
 
         <button
           disabled={!title || services.length === 0}
-          onClick={() => onSave({ id: uid(), title, services, creativeType, channel, scheduledDate, status: "Pending", dateLogged: new Date().toISOString().slice(0, 10) })}
+          onClick={() => onSave({ id: uid(), title, services, creativeType, channel, scheduledDate, linkedCaptionId, creativeRef, status: "Pending", dateLogged: new Date().toISOString().slice(0, 10) })}
           style={{ ...primaryBtn, width: "100%", justifyContent: "center", opacity: (!title || services.length === 0) ? 0.5 : 1 }}
         >
           Log Request
@@ -984,10 +1049,11 @@ function TemplateModal({ onClose, onSave }) {
 
 /* ---------------------------------- SCHEDULER ---------------------------------- */
 
-function Scheduler({ requests }) {
+function Scheduler({ requests, setRequests, captions }) {
   const [view, setView] = useState("month");
   const [cursor, setCursor] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(null);
+  const [newModalDate, setNewModalDate] = useState(null);
 
   const scheduled = useMemo(() => requests.filter(r => r.scheduledDate), [requests]);
   const byDate = useMemo(() => {
@@ -1028,7 +1094,9 @@ function Scheduler({ requests }) {
 
   return (
     <div>
-      <Header title="Scheduler" sub="Color-coded planning calendar across channels" />
+      <Header title="Scheduler" sub="Color-coded planning calendar across channels" action={
+        <button onClick={() => setNewModalDate(todayStr)} style={primaryBtn}><Plus size={15} /> New Scheduled Post</button>
+      } />
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1045,13 +1113,17 @@ function Scheduler({ requests }) {
         </div>
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
-        {CHANNELS.map(c => (
-          <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#5B675F" }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: c.color }} /> {c.name}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
+        {MAJOR_SERVICES.map(s => (
+          <div key={s} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#5B675F" }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: MAJOR_SERVICE_COLOR[s] }} /> {s}
           </div>
         ))}
+        <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#5B675F" }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: MINOR_SERVICE_COLOR }} /> Minor service (see label)
+        </div>
       </div>
+      <div style={{ fontSize: 10.5, color: "#9AA39B", marginBottom: 14 }}>Color marks the Major Service; exact service always shown as text on each post.</div>
 
       {view === "month" ? (
         <Card>
@@ -1065,8 +1137,8 @@ function Scheduler({ requests }) {
               const items = byDate[key] || [];
               const isToday = key === todayStr;
               return (
-                <button key={i} onClick={() => items.length && setSelectedDay(key)} style={{
-                  background: "#fff", minHeight: 84, padding: 6, textAlign: "left", border: "none", cursor: items.length ? "pointer" : "default",
+                <button key={i} onClick={() => items.length ? setSelectedDay(key) : setNewModalDate(key)} style={{
+                  background: "#fff", minHeight: 84, padding: 6, textAlign: "left", border: "none", cursor: "pointer",
                   display: "flex", flexDirection: "column", gap: 3,
                 }}>
                   <span style={{
@@ -1075,10 +1147,10 @@ function Scheduler({ requests }) {
                     display: "flex", alignItems: "center", justifyContent: "center",
                   }}>{d.getDate()}</span>
                   {items.slice(0, 3).map(r => {
-                    const ch = CHANNELS.find(c => c.id === r.channel);
+                    const svc = primaryService(r.services);
                     return (
-                      <div key={r.id} style={{ fontSize: 9.5, background: ch?.color + "22", color: ch?.color, borderRadius: 4, padding: "1px 4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {r.title}
+                      <div key={r.id} style={{ fontSize: 9.5, background: svc.color + "22", color: svc.color, borderRadius: 4, padding: "1px 4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={svc.name}>
+                        {r.title} · {svc.name}
                       </div>
                     );
                   })}
@@ -1103,11 +1175,12 @@ function Scheduler({ requests }) {
                   <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                     {items.length === 0 && <div style={{ fontSize: 10, color: "#C9CFC7" }}>—</div>}
                     {items.map(r => {
+                      const svc = primaryService(r.services);
                       const ch = CHANNELS.find(c => c.id === r.channel);
                       return (
-                        <div key={r.id} style={{ fontSize: 10.5, background: ch?.color + "22", color: ch?.color, borderRadius: 5, padding: "4px 6px" }}>
+                        <div key={r.id} style={{ fontSize: 10.5, background: svc.color + "22", color: svc.color, borderRadius: 5, padding: "4px 6px" }}>
                           <div style={{ fontWeight: 700 }}>{r.title}</div>
-                          <div style={{ fontSize: 9.5, opacity: 0.85 }}>{ch?.name} · {r.creativeType}</div>
+                          <div style={{ fontSize: 9.5, opacity: 0.85 }}>{svc.name} · {ch?.name} · {r.creativeType}</div>
                         </div>
                       );
                     })}
@@ -1126,23 +1199,50 @@ function Scheduler({ requests }) {
               <div className="disp" style={{ fontSize: 16, fontWeight: 600 }}>{new Date(selectedDay + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</div>
               <button onClick={() => setSelectedDay(null)} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
             </div>
+            <button onClick={() => { setNewModalDate(selectedDay); setSelectedDay(null); }} style={{ ...primaryBtn, width: "100%", justifyContent: "center", marginBottom: 12 }}>
+              <Plus size={14} /> Add another for this day
+            </button>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {(byDate[selectedDay] || []).map(r => {
                 const ch = CHANNELS.find(c => c.id === r.channel);
+                const svc = primaryService(r.services);
                 const Icon = STATUS_ICON[r.status];
+                const linkedCaption = captions.find(c => c.id === r.linkedCaptionId);
                 return (
                   <div key={r.id} style={{ border: "1px solid #E3E6E0", borderRadius: 8, padding: 10 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 3 }}>{r.title}</div>
-                    <div style={{ fontSize: 11, color: "#5B675F", marginBottom: 6 }}>{ch?.name} · {r.creativeType}</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color: STATUS_COLOR[r.status] }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: svc.color, flexShrink: 0 }} />
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>{r.title}</div>
+                    </div>
+                    <div style={{ fontSize: 11, color: "#5B675F", marginBottom: 6 }}>{svc.name} · {ch?.name} · {r.creativeType}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color: STATUS_COLOR[r.status], marginBottom: 8 }}>
                       <Icon size={12} /> {r.status}
                     </div>
+                    {linkedCaption && (
+                      <div style={{ fontSize: 11.5, background: "#F5F6F1", borderRadius: 6, padding: 8, marginBottom: 6, whiteSpace: "pre-wrap" }}>
+                        {linkedCaption.textEn}
+                      </div>
+                    )}
+                    {r.creativeRef && (
+                      <a href={r.creativeRef} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: "#146356", fontWeight: 600, wordBreak: "break-all" }}>
+                        View creative reference →
+                      </a>
+                    )}
                   </div>
                 );
               })}
             </div>
           </div>
         </div>
+      )}
+
+      {newModalDate && (
+        <RequestModal
+          initialDate={newModalDate}
+          captions={captions}
+          onClose={() => setNewModalDate(null)}
+          onSave={(req) => { setRequests(rs => [...rs, req]); setNewModalDate(null); }}
+        />
       )}
     </div>
   );
