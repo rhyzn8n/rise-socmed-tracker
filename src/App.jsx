@@ -626,8 +626,14 @@ function Channels({ channelStats, setChannelStats }) {
   const [editingRow, setEditingRow] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [growthView, setGrowthView] = useState("month");
+  const [confirmDeleteMonth, setConfirmDeleteMonth] = useState(null);
   const channel = CHANNELS.find(c => c.id === selected);
   const rows = (channelStats[selected] || []).sort((a, b) => a.month.localeCompare(b.month));
+
+  const deleteEntry = (month) => {
+    setChannelStats(cs => ({ ...cs, [selected]: (cs[selected] || []).filter(r => r.month !== month) }));
+    setConfirmDeleteMonth(null);
+  };
 
   const saveEntry = (chId, entry) => {
     setChannelStats(cs => {
@@ -721,7 +727,14 @@ function Channels({ channelStats, setChannelStats }) {
                     <td style={td} className="mono">{r.engagement30}%</td>
                     <td style={td}><RatingBadge label={rate(channel.platform, "engagement", r.engagement30)} /></td>
                     <td style={td}>
-                      <button onClick={() => { setEditingRow(r); setOpen(true); }} style={{ border: "none", background: "transparent", color: "#146356" }}><Pencil size={13} /></button>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => { setEditingRow(r); setOpen(true); }} style={{ border: "none", background: "transparent", color: "#146356" }}><Pencil size={13} /></button>
+                        {confirmDeleteMonth === r.month ? (
+                          <button onClick={() => deleteEntry(r.month)} style={{ border: "none", background: "transparent", color: "#C4544A", fontSize: 10.5, fontWeight: 700 }}>Confirm?</button>
+                        ) : (
+                          <button onClick={() => setConfirmDeleteMonth(r.month)} style={{ border: "none", background: "transparent", color: "#C4544A" }}><Trash2 size={13} /></button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1977,6 +1990,12 @@ function Reports({ requests, channelStats, targets, captions, majorServices, min
     return Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
   }, [requestsInRange]);
 
+  const byChannel = useMemo(() => {
+    const counts = {};
+    requestsInRange.forEach(r => { const name = CHANNELS.find(c => c.id === r.channel)?.name; if (name) counts[name] = (counts[name] || 0) + 1; });
+    return Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+  }, [requestsInRange]);
+
   const byDept = useMemo(() => {
     const counts = {};
     requestsInRange.forEach(r => { if (r.dept) counts[r.dept] = (counts[r.dept] || 0) + 1; });
@@ -1999,11 +2018,19 @@ function Reports({ requests, channelStats, targets, captions, majorServices, min
   const channelPerf = useMemo(() => CHANNELS.map(ch => {
     const rows = (channelStats[ch.id] || []).filter(r => r.month >= start.slice(0, 7) && r.month <= end.slice(0, 7)).sort((a, b) => a.month.localeCompare(b.month));
     const latest = rows[rows.length - 1];
-    return { channel: ch, latest, growthRating: latest ? rate(ch.platform, "growth", latest.growthPct) : null, engRating: latest ? rate(ch.platform, "engagement", latest.engagement30) : null };
+    const earliest = rows[0];
+    return { channel: ch, latest, earliest, growthRating: latest ? rate(ch.platform, "growth", latest.growthPct) : null, engRating: latest ? rate(ch.platform, "engagement", latest.engagement30) : null };
   }), [channelStats, start, end]);
 
   const withData = channelPerf.filter(c => c.latest);
-  const avgGrowth = withData.length ? (withData.reduce((s, c) => s + c.latest.growthPct, 0) / withData.length) : null;
+  // Cumulative growth = combined follower change across ALL channels ÷ combined starting followers —
+  // a follower-weighted total, not a plain average of each channel's % (which would let a small
+  // channel's swing count as much as a large one's).
+  const totalStartFollowers = withData.reduce((s, c) => s + (c.earliest?.followers ?? c.latest.followers), 0);
+  const totalEndFollowers = withData.reduce((s, c) => s + c.latest.followers, 0);
+  const cumulativeGrowth = totalStartFollowers > 0 ? ((totalEndFollowers - totalStartFollowers) / totalStartFollowers) * 100 : null;
+  // Engagement stays a simple average for now — a true weighted figure needs raw engaged-count
+  // data per channel, which isn't currently logged (only the rate is).
   const avgEngagement = withData.length ? (withData.reduce((s, c) => s + c.latest.engagement30, 0) / withData.length) : null;
 
   const targetAchievement = useMemo(() => targets.map(t => {
@@ -2044,8 +2071,8 @@ function Reports({ requests, channelStats, targets, captions, majorServices, min
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 18 }}>
         <StatCard label="Total Requests" value={totalRequests} />
         <StatCard label="Completion Rate" value={`${completionRate}%`} accent={completionRate >= 70 ? "#146356" : "#E8A33D"} />
-        <StatCard label="Avg. Channel Growth" value={avgGrowth === null ? "—" : `${avgGrowth.toFixed(2)}%`} />
-        <StatCard label="Avg. Engagement" value={avgEngagement === null ? "—" : `${avgEngagement.toFixed(2)}%`} />
+        <StatCard label="Cumulative Growth (All Channels)" value={cumulativeGrowth === null ? "—" : `${cumulativeGrowth.toFixed(2)}%`} sub="Follower-weighted, not a simple average" />
+        <StatCard label="Avg. Engagement (Simple Avg.)" value={avgEngagement === null ? "—" : `${avgEngagement.toFixed(2)}%`} />
       </div>
 
       <Card title="Post Status Summary" style={{ marginBottom: 16 }}>
@@ -2065,6 +2092,10 @@ function Reports({ requests, channelStats, targets, captions, majorServices, min
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
         <FlexibleChart title="Requests per Service" data={byService} color="#146356" empty="No requests logged in this period." />
         <FlexibleChart title="Requests by Creative Type" data={byCreative} color="#E8A33D" empty="No requests logged in this period." defaultType="pie" />
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <FlexibleChart title="Requests per Channel" data={byChannel} color="#3E7CB1" empty="No requests logged in this period." />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
@@ -2263,12 +2294,18 @@ function FlexibleChart({ title, data, color = "#146356", empty, defaultType = "b
 /* ---------------------------------- SHARED UI ---------------------------------- */
 
 function CoverageGrid({ covered, flagged, total, periodLabel }) {
+  const pct = total > 0 ? Math.round((covered.length / total) * 100) : 0;
+  const barColor = pct >= 80 ? "#146356" : pct >= 50 ? "#E8A33D" : "#C4544A";
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <div style={{ fontSize: 13, fontWeight: 700 }}>Service Coverage{periodLabel ? ` — ${periodLabel}` : ""}</div>
-        <div style={{ fontSize: 11.5, color: "#5B675F" }}>{covered.length} of {total} services covered</div>
+        <div style={{ fontSize: 13, fontWeight: 700, color: barColor }}>{pct}%</div>
       </div>
+      <div style={{ height: 8, background: "#EEF0EC", borderRadius: 4, overflow: "hidden", marginBottom: 6 }}>
+        <div style={{ width: `${pct}%`, height: "100%", background: barColor, borderRadius: 4 }} />
+      </div>
+      <div style={{ fontSize: 11, color: "#5B675F", marginBottom: 12 }}>{covered.length} of {total} services covered</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 260, overflowY: "auto" }}>
         {flagged.map(s => (
           <span key={s.name} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color: "#C4544A", background: "#C4544A1A", padding: "4px 10px", borderRadius: 12, border: "1px solid #C4544A33" }}>
