@@ -9,7 +9,8 @@ import {
 import {
   LayoutDashboard, ClipboardList, TrendingUp, Target, Plus, X,
   ChevronDown, Filter, ArrowUp, ArrowDown, CheckCircle2, Clock,
-  Circle, Search, AlertTriangle, ChevronUp, MessageSquareText, Copy, Sparkles, Wand2, Hash, FileText
+  Circle, Search, AlertTriangle, ChevronUp, MessageSquareText, Copy, Sparkles, Wand2, Hash, FileText,
+  CalendarDays, ChevronLeft, ChevronRight
 } from "lucide-react";
 
 /* ---------------------------------- DATA ---------------------------------- */
@@ -115,6 +116,7 @@ export default function RiseSocMedTracker() {
     { id: "channels",  label: "Channels",  icon: TrendingUp },
     { id: "targets",   label: "Targets",   icon: Target },
     { id: "captions",  label: "Captions",  icon: MessageSquareText },
+    { id: "scheduler", label: "Scheduler", icon: CalendarDays },
   ];
 
   return (
@@ -162,6 +164,7 @@ export default function RiseSocMedTracker() {
         {tab === "channels"  && <Channels channelStats={channelStats} setChannelStats={setChannelStats} />}
         {tab === "targets"   && <Targets targets={targets} setTargets={setTargets} requests={requests} />}
         {tab === "captions"  && <Captions captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates} />}
+        {tab === "scheduler" && <Scheduler requests={requests} />}
       </div>
     </div>
   );
@@ -430,6 +433,7 @@ function RequestModal({ onClose, onSave }) {
   const [services, setServices] = useState([]);
   const [creativeType, setCreativeType] = useState(CREATIVE_TYPES[0]);
   const [channel, setChannel] = useState(CHANNELS[0].id);
+  const [scheduledDate, setScheduledDate] = useState("");
   const list = serviceType === "major" ? MAJOR_SERVICES : MINOR_SERVICES;
 
   const toggleService = (s) => setServices(cur => cur.includes(s) ? cur.filter(x => x !== s) : [...cur, s]);
@@ -472,9 +476,12 @@ function RequestModal({ onClose, onSave }) {
           </div>
         </div>
 
+        <label style={label}>Scheduled post date (optional — shows on the Scheduler)</label>
+        <input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 20 }} />
+
         <button
           disabled={!title || services.length === 0}
-          onClick={() => onSave({ id: uid(), title, services, creativeType, channel, status: "Pending", dateLogged: new Date().toISOString().slice(0, 10) })}
+          onClick={() => onSave({ id: uid(), title, services, creativeType, channel, scheduledDate, status: "Pending", dateLogged: new Date().toISOString().slice(0, 10) })}
           style={{ ...primaryBtn, width: "100%", justifyContent: "center", opacity: (!title || services.length === 0) ? 0.5 : 1 }}
         >
           Log Request
@@ -975,6 +982,172 @@ function TemplateModal({ onClose, onSave }) {
   );
 }
 
+/* ---------------------------------- SCHEDULER ---------------------------------- */
+
+function Scheduler({ requests }) {
+  const [view, setView] = useState("month");
+  const [cursor, setCursor] = useState(new Date());
+  const [selectedDay, setSelectedDay] = useState(null);
+
+  const scheduled = useMemo(() => requests.filter(r => r.scheduledDate), [requests]);
+  const byDate = useMemo(() => {
+    const map = {};
+    scheduled.forEach(r => { (map[r.scheduledDate] = map[r.scheduledDate] || []).push(r); });
+    return map;
+  }, [scheduled]);
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const shift = (amount) => setCursor(c => {
+    const d = new Date(c);
+    if (view === "month") d.setMonth(d.getMonth() + amount);
+    else d.setDate(d.getDate() + amount * 7);
+    return d;
+  });
+
+  const monthLabelFull = cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  // Build month grid
+  const monthGrid = useMemo(() => {
+    const first = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+    const startPad = first.getDay();
+    const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate();
+    const cells = [];
+    for (let i = 0; i < startPad; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(cursor.getFullYear(), cursor.getMonth(), d));
+    return cells;
+  }, [cursor]);
+
+  // Build week range (Sun–Sat containing cursor)
+  const weekDays = useMemo(() => {
+    const d = new Date(cursor);
+    d.setDate(d.getDate() - d.getDay());
+    return Array.from({ length: 7 }, (_, i) => { const dd = new Date(d); dd.setDate(d.getDate() + i); return dd; });
+  }, [cursor]);
+
+  const fmt = (d) => d.toISOString().slice(0, 10);
+
+  return (
+    <div>
+      <Header title="Scheduler" sub="Color-coded planning calendar across channels" />
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button onClick={() => shift(-1)} style={navBtn}><ChevronLeft size={16} /></button>
+          <div style={{ fontSize: 14, fontWeight: 700, minWidth: 170, textAlign: "center" }}>
+            {view === "month" ? monthLabelFull : `${weekDays[0].toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${weekDays[6].toLocaleDateString("en-US", { month: "short", day: "numeric" })}`}
+          </div>
+          <button onClick={() => shift(1)} style={navBtn}><ChevronRight size={16} /></button>
+          <button onClick={() => setCursor(new Date())} style={{ ...navBtn, width: "auto", padding: "0 10px", fontSize: 11.5, fontWeight: 600 }}>Today</button>
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={() => setView("month")} style={pillBtn(view === "month")}>Month</button>
+          <button onClick={() => setView("week")} style={pillBtn(view === "week")}>Week</button>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 14 }}>
+        {CHANNELS.map(c => (
+          <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#5B675F" }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: c.color }} /> {c.name}
+          </div>
+        ))}
+      </div>
+
+      {view === "month" ? (
+        <Card>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 1, background: "#E3E6E0", border: "1px solid #E3E6E0", borderRadius: 8, overflow: "hidden" }}>
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(d => (
+              <div key={d} style={{ background: "#F5F6F1", padding: "6px 8px", fontSize: 10.5, fontWeight: 700, color: "#5B675F" }}>{d}</div>
+            ))}
+            {monthGrid.map((d, i) => {
+              if (!d) return <div key={i} style={{ background: "#fff", minHeight: 84 }} />;
+              const key = fmt(d);
+              const items = byDate[key] || [];
+              const isToday = key === todayStr;
+              return (
+                <button key={i} onClick={() => items.length && setSelectedDay(key)} style={{
+                  background: "#fff", minHeight: 84, padding: 6, textAlign: "left", border: "none", cursor: items.length ? "pointer" : "default",
+                  display: "flex", flexDirection: "column", gap: 3,
+                }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: isToday ? 700 : 500, color: isToday ? "#fff" : "#0E2B27",
+                    background: isToday ? "#146356" : "transparent", width: 18, height: 18, borderRadius: "50%",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>{d.getDate()}</span>
+                  {items.slice(0, 3).map(r => {
+                    const ch = CHANNELS.find(c => c.id === r.channel);
+                    return (
+                      <div key={r.id} style={{ fontSize: 9.5, background: ch?.color + "22", color: ch?.color, borderRadius: 4, padding: "1px 4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {r.title}
+                      </div>
+                    );
+                  })}
+                  {items.length > 3 && <div style={{ fontSize: 9.5, color: "#9AA39B" }}>+{items.length - 3} more</div>}
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+      ) : (
+        <Card>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 8 }}>
+            {weekDays.map(d => {
+              const key = fmt(d);
+              const items = byDate[key] || [];
+              const isToday = key === todayStr;
+              return (
+                <div key={key} style={{ border: `1px solid ${isToday ? "#146356" : "#E3E6E0"}`, borderRadius: 8, padding: 8, minHeight: 220 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: isToday ? "#146356" : "#5B675F", marginBottom: 6 }}>
+                    {d.toLocaleDateString("en-US", { weekday: "short", day: "numeric" })}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    {items.length === 0 && <div style={{ fontSize: 10, color: "#C9CFC7" }}>—</div>}
+                    {items.map(r => {
+                      const ch = CHANNELS.find(c => c.id === r.channel);
+                      return (
+                        <div key={r.id} style={{ fontSize: 10.5, background: ch?.color + "22", color: ch?.color, borderRadius: 5, padding: "4px 6px" }}>
+                          <div style={{ fontWeight: 700 }}>{r.title}</div>
+                          <div style={{ fontSize: 9.5, opacity: 0.85 }}>{ch?.name} · {r.creativeType}</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {selectedDay && (
+        <div style={overlay} onClick={() => setSelectedDay(null)}>
+          <div style={{ ...modal, width: 420 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div className="disp" style={{ fontSize: 16, fontWeight: 600 }}>{new Date(selectedDay + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</div>
+              <button onClick={() => setSelectedDay(null)} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {(byDate[selectedDay] || []).map(r => {
+                const ch = CHANNELS.find(c => c.id === r.channel);
+                const Icon = STATUS_ICON[r.status];
+                return (
+                  <div key={r.id} style={{ border: "1px solid #E3E6E0", borderRadius: 8, padding: 10 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 3 }}>{r.title}</div>
+                    <div style={{ fontSize: 11, color: "#5B675F", marginBottom: 6 }}>{ch?.name} · {r.creativeType}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color: STATUS_COLOR[r.status] }}>
+                      <Icon size={12} /> {r.status}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ---------------------------------- SHARED UI ---------------------------------- */
 
 function Header({ title, sub, action }) {
@@ -1020,6 +1193,7 @@ const label = { fontSize: 11, fontWeight: 600, color: "#5B675F", display: "block
 const inputStyle = { border: "1px solid #D8DDD5", borderRadius: 7, padding: "8px 10px", fontSize: 13, outline: "none", color: "#0E2B27" };
 const tagStyle = { fontSize: 10.5, background: "#EEF0EC", padding: "2px 7px", borderRadius: 8, color: "#0E2B27" };
 const primaryBtn = { display: "flex", alignItems: "center", gap: 6, background: "#146356", color: "#fff", border: "none", padding: "9px 15px", borderRadius: 8, fontSize: 13, fontWeight: 600 };
+const navBtn = { display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: "1px solid #D8DDD5", background: "#fff", borderRadius: 7, color: "#0E2B27" };
 const overlay = { position: "fixed", inset: 0, background: "rgba(14,43,39,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 };
 const modal = { background: "#fff", borderRadius: 12, padding: 24, width: 480, maxHeight: "85vh", overflowY: "auto" };
 const pillBtn = (active) => ({
