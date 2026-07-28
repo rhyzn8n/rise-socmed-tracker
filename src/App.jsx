@@ -9,7 +9,7 @@ import {
 import {
   LayoutDashboard, ClipboardList, TrendingUp, Target, Plus, X,
   ChevronDown, Filter, ArrowUp, ArrowDown, CheckCircle2, Clock,
-  Circle, Search, AlertTriangle, ChevronUp
+  Circle, Search, AlertTriangle, ChevronUp, MessageSquareText, Copy, Sparkles, Wand2, Hash, FileText
 } from "lucide-react";
 
 /* ---------------------------------- DATA ---------------------------------- */
@@ -41,6 +41,11 @@ const BENCHMARKS = {
 };
 const RATING_COLOR = { "Low": "#C4544A", "Healthy": "#E8A33D", "Average": "#E8A33D", "Good": "#4C8C6B", "Strong": "#4C8C6B", "Very Good": "#2E7D6B", "Excellent": "#146356", "Top-Performing": "#0E2B27" };
 
+const CAPTION_STATUS = ["Draft", "Approved", "Used"];
+const CAPTION_STATUS_COLOR = { "Draft": "#9AA39B", "Approved": "#E8A33D", "Used": "#146356" };
+// Practical recommended caption lengths per platform (not the hard technical max — the point where engagement typically drops)
+const PLATFORM_CAPTION_LIMIT = { Facebook: 250, Instagram: 2200, TikTok: 300, YouTube: 1000 };
+
 function rate(platform, kind, value) {
   const tiers = BENCHMARKS[platform]?.[kind];
   if (!tiers) return "—";
@@ -58,6 +63,8 @@ export default function RiseSocMedTracker() {
   const [requests, setRequests] = useState([]);
   const [channelStats, setChannelStats] = useState({});
   const [targets, setTargets] = useState([]);
+  const [captions, setCaptions] = useState([]);
+  const [templates, setTemplates] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   const [user, setUser] = useState(null);
@@ -73,14 +80,18 @@ export default function RiseSocMedTracker() {
     if (!user) return;
     (async () => {
       try {
-        const [rSnap, cSnap, tSnap] = await Promise.all([
+        const [rSnap, cSnap, tSnap, capSnap, tplSnap] = await Promise.all([
           getDoc(doc(db, "riseSocMedData", "requests")),
           getDoc(doc(db, "riseSocMedData", "channelStats")),
           getDoc(doc(db, "riseSocMedData", "targets")),
+          getDoc(doc(db, "riseSocMedData", "captions")),
+          getDoc(doc(db, "riseSocMedData", "templates")),
         ]);
         if (rSnap.exists()) setRequests(rSnap.data().value || []);
         if (cSnap.exists()) setChannelStats(cSnap.data().value || {});
         if (tSnap.exists()) setTargets(tSnap.data().value || []);
+        if (capSnap.exists()) setCaptions(capSnap.data().value || []);
+        if (tplSnap.exists()) setTemplates(tplSnap.data().value || []);
       } finally { setLoaded(true); }
     })();
   }, [user]);
@@ -88,6 +99,8 @@ export default function RiseSocMedTracker() {
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "requests"), { value: requests }).catch(() => {}); }, [requests, loaded, user]);
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "channelStats"), { value: channelStats }).catch(() => {}); }, [channelStats, loaded, user]);
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "targets"), { value: targets }).catch(() => {}); }, [targets, loaded, user]);
+  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "captions"), { value: captions }).catch(() => {}); }, [captions, loaded, user]);
+  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "templates"), { value: templates }).catch(() => {}); }, [templates, loaded, user]);
 
   if (!authChecked) {
     return <div style={{ padding: 40, fontFamily: "'Inter',sans-serif", color: "#5B675F" }}>Loading…</div>;
@@ -101,6 +114,7 @@ export default function RiseSocMedTracker() {
     { id: "requests",  label: "Requests",  icon: ClipboardList },
     { id: "channels",  label: "Channels",  icon: TrendingUp },
     { id: "targets",   label: "Targets",   icon: Target },
+    { id: "captions",  label: "Captions",  icon: MessageSquareText },
   ];
 
   return (
@@ -147,6 +161,7 @@ export default function RiseSocMedTracker() {
         {tab === "requests"  && <Requests requests={requests} setRequests={setRequests} />}
         {tab === "channels"  && <Channels channelStats={channelStats} setChannelStats={setChannelStats} />}
         {tab === "targets"   && <Targets targets={targets} setTargets={setTargets} requests={requests} />}
+        {tab === "captions"  && <Captions captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates} />}
       </div>
     </div>
   );
@@ -697,6 +712,264 @@ function TargetModal({ onClose, onSave }) {
           </div>
         </div>
         <button onClick={() => onSave({ id: uid(), scope, target, period, goal })} style={{ ...primaryBtn, width: "100%", justifyContent: "center" }}>Create Target</button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------- CAPTIONS ---------------------------------- */
+
+function Captions({ captions, setCaptions, templates, setTemplates }) {
+  const [view, setView] = useState("library"); // library | templates
+  const [open, setOpen] = useState(false);
+  const [tplOpen, setTplOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState("All");
+  const [filterService, setFilterService] = useState("All");
+
+  const filtered = captions.filter(c =>
+    (filterStatus === "All" || c.status === filterStatus) &&
+    (filterService === "All" || c.services.includes(filterService)) &&
+    (c.brief.toLowerCase().includes(search.toLowerCase()) || c.textEn.toLowerCase().includes(search.toLowerCase()))
+  ).sort((a, b) => b.dateCreated.localeCompare(a.dateCreated));
+
+  const setStatus = (id, status) => setCaptions(cs => cs.map(c => c.id === id ? { ...c, status } : c));
+  const remove = (id) => setCaptions(cs => cs.filter(c => c.id !== id));
+  const removeTemplate = (id) => setTemplates(ts => ts.filter(t => t.id !== id));
+
+  return (
+    <div>
+      <Header title="Captions" sub="Build, store, and reuse captions across channels" action={
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setTplOpen(true)} style={{ ...primaryBtn, background: "#fff", color: "#146356", border: "1px solid #146356" }}><FileText size={15} /> New Template</button>
+          <button onClick={() => setOpen(true)} style={primaryBtn}><Plus size={15} /> New Caption</button>
+        </div>
+      } />
+
+      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+        <button onClick={() => setView("library")} style={pillBtn(view === "library")}>Library ({captions.length})</button>
+        <button onClick={() => setView("templates")} style={pillBtn(view === "templates")}>Templates ({templates.length})</button>
+      </div>
+
+      {view === "library" ? (
+        <>
+          <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+            <div style={{ position: "relative", flex: 1 }}>
+              <Search size={14} style={{ position: "absolute", left: 10, top: 10, color: "#9AA39B" }} />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search briefs or caption text..." style={{ ...inputStyle, paddingLeft: 30, width: "100%" }} />
+            </div>
+            <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ ...inputStyle, width: 140 }}>
+              <option>All</option>{CAPTION_STATUS.map(s => <option key={s}>{s}</option>)}
+            </select>
+            <select value={filterService} onChange={e => setFilterService(e.target.value)} style={{ ...inputStyle, width: 180 }}>
+              <option>All Services</option>{ALL_SERVICES.map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+
+          {filtered.length === 0 ? <Card><Empty text="No captions match. Create your first one above." /></Card> : (
+            <div style={{ display: "grid", gap: 10 }}>
+              {filtered.map(c => <CaptionCard key={c.id} c={c} onStatus={setStatus} onRemove={remove} />)}
+            </div>
+          )}
+        </>
+      ) : (
+        templates.length === 0 ? <Card><Empty text="No templates yet. Save a reusable format above." /></Card> : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 12 }}>
+            {templates.map(t => (
+              <Card key={t.id}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 6 }}>{t.name}</div>
+                  <button onClick={() => removeTemplate(t.id)} style={{ border: "none", background: "transparent", color: "#C4544A" }}><X size={14} /></button>
+                </div>
+                <div style={{ fontSize: 12, color: "#0E2B27", whiteSpace: "pre-wrap", marginBottom: 8 }}>{t.textEn}</div>
+                {t.hashtags?.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {t.hashtags.map(h => <span key={h} style={{ ...tagStyle, color: "#146356" }}>#{h.replace(/^#/, "")}</span>)}
+                </div>}
+              </Card>
+            ))}
+          </div>
+        )
+      )}
+
+      {open && <CaptionModal onClose={() => setOpen(false)} templates={templates}
+        onSave={(cap) => { setCaptions(cs => [...cs, cap]); setOpen(false); }} />}
+      {tplOpen && <TemplateModal onClose={() => setTplOpen(false)} onSave={(t) => { setTemplates(ts => [...ts, t]); setTplOpen(false); }} />}
+    </div>
+  );
+}
+
+function CaptionCard({ c, onStatus, onRemove }) {
+  const [copied, setCopied] = useState(false);
+  const platform = CHANNELS.find(ch => ch.id === c.channel)?.platform;
+  const limit = PLATFORM_CAPTION_LIMIT[platform] || 300;
+  const len = c.textEn.length;
+  const over = len > limit;
+
+  const copy = () => {
+    navigator.clipboard?.writeText(c.textEn).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
+  };
+
+  return (
+    <Card>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>{c.brief}</div>
+          <div style={{ fontSize: 11, color: "#5B675F", marginTop: 2 }}>
+            {CHANNELS.find(ch => ch.id === c.channel)?.name} · {c.creativeType} {c.campaign && `· ${c.campaign}`}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <select value={c.status} onChange={e => onStatus(c.id, e.target.value)} style={{
+            fontSize: 11, fontWeight: 700, color: CAPTION_STATUS_COLOR[c.status], background: CAPTION_STATUS_COLOR[c.status] + "1A",
+            border: "none", borderRadius: 12, padding: "3px 8px",
+          }}>
+            {CAPTION_STATUS.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <button onClick={() => onRemove(c.id)} style={{ border: "none", background: "transparent", color: "#C4544A" }}><X size={14} /></button>
+        </div>
+      </div>
+
+      <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", background: "#F5F6F1", borderRadius: 8, padding: 10, marginBottom: c.textFil ? 6 : 8 }}>{c.textEn}</div>
+      {c.textFil && <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", background: "#F5F6F1", borderRadius: 8, padding: 10, marginBottom: 8, fontStyle: "italic", color: "#5B675F" }}>{c.textFil}</div>}
+
+      {c.hashtags?.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+          {c.hashtags.map(h => <span key={h} style={{ ...tagStyle, color: "#146356" }}>#{h.replace(/^#/, "")}</span>)}
+        </div>
+      )}
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+          {c.services.map(s => <span key={s} style={tagStyle}>{s}</span>)}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span className="mono" style={{ fontSize: 10.5, color: over ? "#C4544A" : "#9AA39B" }}>{len}/{limit}</span>
+          <button onClick={copy} style={{ display: "flex", alignItems: "center", gap: 5, border: "1px solid #D8DDD5", background: copied ? "#146356" : "#fff", color: copied ? "#fff" : "#0E2B27", borderRadius: 7, padding: "5px 10px", fontSize: 11.5, fontWeight: 600 }}>
+            <Copy size={12} /> {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function CaptionModal({ onClose, onSave, templates }) {
+  const [brief, setBrief] = useState("");
+  const [serviceType, setServiceType] = useState("major");
+  const [services, setServices] = useState([]);
+  const [creativeType, setCreativeType] = useState(CREATIVE_TYPES[0]);
+  const [channel, setChannel] = useState(CHANNELS[0].id);
+  const [campaign, setCampaign] = useState("");
+  const [textEn, setTextEn] = useState("");
+  const [textFil, setTextFil] = useState("");
+  const [hashtagsInput, setHashtagsInput] = useState("");
+  const list = serviceType === "major" ? MAJOR_SERVICES : MINOR_SERVICES;
+
+  const toggleService = (s) => setServices(cur => cur.includes(s) ? cur.filter(x => x !== s) : [...cur, s]);
+
+  const applyTemplate = (id) => {
+    const t = templates.find(x => x.id === id);
+    if (!t) return;
+    setTextEn(t.textEn); setTextFil(t.textFil || ""); setHashtagsInput((t.hashtags || []).join(", "));
+  };
+
+  return (
+    <div style={overlay}>
+      <div style={{ ...modal, width: 560 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>New Caption</div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
+        </div>
+
+        <label style={label}>Brief / title</label>
+        <input value={brief} onChange={e => setBrief(e.target.value)} placeholder="e.g. May PNLE trivia post" style={{ ...inputStyle, width: "100%", marginBottom: 12 }} />
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 12 }}>
+          <div>
+            <label style={label}>Creative type</label>
+            <select value={creativeType} onChange={e => setCreativeType(e.target.value)} style={{ ...inputStyle, width: "100%" }}>{CREATIVE_TYPES.map(c => <option key={c}>{c}</option>)}</select>
+          </div>
+          <div>
+            <label style={label}>Channel</label>
+            <select value={channel} onChange={e => setChannel(e.target.value)} style={{ ...inputStyle, width: "100%" }}>{CHANNELS.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+          </div>
+          <div>
+            <label style={label}>Campaign (optional)</label>
+            <input value={campaign} onChange={e => setCampaign(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
+          </div>
+        </div>
+
+        <label style={label}>Service tags</label>
+        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          <button onClick={() => setServiceType("major")} style={pillBtn(serviceType === "major")}>Major</button>
+          <button onClick={() => setServiceType("minor")} style={pillBtn(serviceType === "minor")}>Minor</button>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 90, overflowY: "auto", border: "1px solid #E3E6E0", borderRadius: 8, padding: 8, marginBottom: 14 }}>
+          {list.map(s => <button key={s} onClick={() => toggleService(s)} style={pillBtn(services.includes(s))}>{s}</button>)}
+        </div>
+
+        {templates.length > 0 && (
+          <div style={{ marginBottom: 14 }}>
+            <label style={label}>Start from a template (optional)</label>
+            <select onChange={e => e.target.value && applyTemplate(e.target.value)} defaultValue="" style={{ ...inputStyle, width: "100%" }}>
+              <option value="">— none —</option>
+              {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
+        )}
+
+        <div style={{ background: "#F5F6F1", border: "1px solid #E3E6E0", borderRadius: 9, padding: 10, marginBottom: 14, fontSize: 11, color: "#5B675F" }}>
+          Tip: draft in ChatGPT first (a Project seeded with your approved captions keeps the brand voice consistent), then paste the result below.
+        </div>
+
+        <label style={label}>Caption (English)</label>
+        <textarea value={textEn} onChange={e => setTextEn(e.target.value)} rows={4} style={{ ...inputStyle, width: "100%", marginBottom: 12, resize: "vertical" }} />
+        <label style={label}>Caption (Filipino) — optional</label>
+        <textarea value={textFil} onChange={e => setTextFil(e.target.value)} rows={3} style={{ ...inputStyle, width: "100%", marginBottom: 12, resize: "vertical" }} />
+
+        <label style={label}><Hash size={11} style={{ verticalAlign: -1 }} /> Hashtags (comma-separated)</label>
+        <input value={hashtagsInput} onChange={e => setHashtagsInput(e.target.value)} placeholder="IPASSNCLEX, NCLEXReview" style={{ ...inputStyle, width: "100%", marginBottom: 20 }} />
+
+        <button
+          disabled={!brief || services.length === 0 || !textEn}
+          onClick={() => onSave({
+            id: uid(), brief, services, creativeType, channel, campaign, textEn, textFil,
+            hashtags: hashtagsInput.split(",").map(h => h.trim()).filter(Boolean),
+            status: "Draft", dateCreated: new Date().toISOString().slice(0, 10),
+          })}
+          style={{ ...primaryBtn, width: "100%", justifyContent: "center", opacity: (!brief || services.length === 0 || !textEn) ? 0.5 : 1 }}
+        >Save Caption</button>
+      </div>
+    </div>
+  );
+}
+
+function TemplateModal({ onClose, onSave }) {
+  const [name, setName] = useState("");
+  const [textEn, setTextEn] = useState("");
+  const [textFil, setTextFil] = useState("");
+  const [hashtagsInput, setHashtagsInput] = useState("");
+
+  return (
+    <div style={overlay}>
+      <div style={modal}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>New Template</div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
+        </div>
+        <label style={label}>Template name</label>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Weekly Trivia Format" style={{ ...inputStyle, width: "100%", marginBottom: 12 }} />
+        <label style={label}>Caption text — use {"{Placeholders}"} for parts that change</label>
+        <textarea value={textEn} onChange={e => setTextEn(e.target.value)} rows={4} placeholder={"e.g. It's {ServiceName} trivia day! {CTA}"} style={{ ...inputStyle, width: "100%", marginBottom: 12, resize: "vertical" }} />
+        <label style={label}>Filipino version (optional)</label>
+        <textarea value={textFil} onChange={e => setTextFil(e.target.value)} rows={3} style={{ ...inputStyle, width: "100%", marginBottom: 12, resize: "vertical" }} />
+        <label style={label}><Hash size={11} style={{ verticalAlign: -1 }} /> Default hashtags (comma-separated)</label>
+        <input value={hashtagsInput} onChange={e => setHashtagsInput(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 20 }} />
+        <button
+          disabled={!name || !textEn}
+          onClick={() => onSave({ id: uid(), name, textEn, textFil, hashtags: hashtagsInput.split(",").map(h => h.trim()).filter(Boolean) })}
+          style={{ ...primaryBtn, width: "100%", justifyContent: "center", opacity: (!name || !textEn) ? 0.5 : 1 }}
+        >Save Template</button>
       </div>
     </div>
   );
