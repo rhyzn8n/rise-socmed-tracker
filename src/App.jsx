@@ -11,7 +11,7 @@ import {
   ChevronDown, Filter, ArrowUp, ArrowDown, CheckCircle2, Clock,
   Circle, Search, AlertTriangle, ChevronUp, MessageSquareText, Copy, Sparkles, Wand2, Hash, FileText,
   CalendarDays, ChevronLeft, ChevronRight, Bell, Ban, RotateCcw, Pencil, Trash2, Smile,
-  Bold, Italic, CaseUpper, CaseLower, CaseSensitive, ShieldCheck, Maximize2
+  Bold, Italic, CaseUpper, CaseLower, CaseSensitive, ShieldCheck, Maximize2, BarChart3, Printer, Grid2X2
 } from "lucide-react";
 
 /* ---------------------------------- DATA ---------------------------------- */
@@ -78,7 +78,45 @@ function rate(platform, kind, value) {
 }
 
 const monthLabel = (ym) => new Date(ym + "-01").toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+function getReportRange(periodType, cursor, customStart, customEnd) {
+  const fmt = (x) => x.toISOString().slice(0, 10);
+  if (periodType === "custom") {
+    return { start: customStart || fmt(cursor), end: customEnd || fmt(cursor), label: customStart && customEnd ? `${customStart} to ${customEnd}` : "Pick a custom range" };
+  }
+  if (periodType === "week") {
+    const d = new Date(cursor); d.setDate(d.getDate() - d.getDay());
+    const start = new Date(d); const end = new Date(d); end.setDate(start.getDate() + 6);
+    return { start: fmt(start), end: fmt(end), label: `${start.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` };
+  }
+  if (periodType === "quarter") {
+    const q = Math.floor(cursor.getMonth() / 3);
+    const start = new Date(cursor.getFullYear(), q * 3, 1);
+    const end = new Date(cursor.getFullYear(), q * 3 + 3, 0);
+    return { start: fmt(start), end: fmt(end), label: `Q${q + 1} ${cursor.getFullYear()}` };
+  }
+  const start = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+  const end = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
+  return { start: fmt(start), end: fmt(end), label: cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" }) };
+}
 const uid = () => Math.random().toString(36).slice(2, 10);
+function aggregateChannelStats(rows, granularity) {
+  if (granularity === "month") {
+    return rows.map(r => ({ label: monthLabel(r.month), month: r.month, growthPct: r.growthPct, engagement30: r.engagement30, engagement15: r.engagement15, followers: r.followers }));
+  }
+  const groups = {};
+  rows.forEach(r => {
+    const [y, m] = r.month.split("-").map(Number);
+    const key = granularity === "quarter" ? `${y} Q${Math.floor((m - 1) / 3) + 1}` : `${y}`;
+    (groups[key] = groups[key] || []).push(r);
+  });
+  return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0])).map(([key, items]) => ({
+    label: key,
+    growthPct: items.reduce((s, i) => s + i.growthPct, 0) / items.length,
+    engagement30: items.reduce((s, i) => s + i.engagement30, 0) / items.length,
+    engagement15: items.reduce((s, i) => s + i.engagement15, 0) / items.length,
+    followers: items[items.length - 1].followers,
+  }));
+}
 
 // Social platforms render plain text only — no real bold/italic HTML. The common
 // workaround people actually use is swapping characters for Unicode "Mathematical
@@ -122,7 +160,7 @@ export default function RiseSocMedTracker() {
   const [targets, setTargets] = useState([]);
   const [captions, setCaptions] = useState([]);
   const [templates, setTemplates] = useState([]);
-  const [extraServices, setExtraServices] = useState({ major: [], minor: [] });
+  const [extraServices, setExtraServices] = useState({ major: [...MAJOR_SERVICES], minor: [...MINOR_SERVICES] });
   const [loaded, setLoaded] = useState(false);
 
   const [user, setUser] = useState(null);
@@ -178,12 +216,13 @@ export default function RiseSocMedTracker() {
     { id: "targets",   label: "Targets",   icon: Target },
     { id: "captions",  label: "Captions",  icon: MessageSquareText },
     { id: "scheduler", label: "Scheduler", icon: CalendarDays },
+    { id: "reports",   label: "Reports",   icon: BarChart3 },
   ];
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const isAdmin = !!(user && ADMIN_EMAILS.includes(user.email));
-  const allMajorServices = [...MAJOR_SERVICES, ...extraServices.major];
-  const allMinorServices = [...MINOR_SERVICES, ...extraServices.minor];
+  const allMajorServices = extraServices.major;
+  const allMinorServices = extraServices.minor;
   const allServicesList = [...allMajorServices, ...allMinorServices];
   const reminders = requests
     .filter(r => r.scheduledDate && r.scheduledDate <= todayStr && r.status !== "Completed")
@@ -198,10 +237,15 @@ export default function RiseSocMedTracker() {
         button { cursor:pointer; font-family:inherit; }
         input,select,textarea { font-family:inherit; }
         ::-webkit-scrollbar{width:8px;height:8px} ::-webkit-scrollbar-thumb{background:#D8DDD5;border-radius:4px}
+        @media print {
+          .no-print { display: none !important; }
+          .app-main { max-height: none !important; overflow: visible !important; padding: 0 !important; }
+          body, .report-page { background: #fff !important; }
+        }
       `}</style>
 
       {/* SIDEBAR */}
-      <div style={{ width: 208, background: "#0E2B27", color: "#F5F6F1", padding: "22px 14px", flexShrink: 0, position: "relative" }}>
+      <div className="no-print" style={{ width: 208, background: "#0E2B27", color: "#F5F6F1", padding: "22px 14px", flexShrink: 0, position: "relative" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 3, paddingLeft: 6 }}>
             {[6, 10, 14, 19].map((h, i) => (
@@ -256,14 +300,17 @@ export default function RiseSocMedTracker() {
       </div>
 
       {/* MAIN */}
-      <div style={{ flex: 1, padding: "26px 32px", overflowY: "auto", maxHeight: 620 }}>
+      <div className="app-main" style={{ flex: 1, padding: "26px 32px", overflowY: "auto", maxHeight: 620 }}>
         {tab === "dashboard" && <Dashboard requests={requests} channelStats={channelStats} targets={targets} allServicesList={allServicesList} />}
         {tab === "requests"  && <Requests requests={requests} setRequests={setRequests} captions={captions} user={user} majorServices={allMajorServices} minorServices={allMinorServices} />}
         {tab === "channels"  && <Channels channelStats={channelStats} setChannelStats={setChannelStats} />}
         {tab === "targets"   && <Targets targets={targets} setTargets={setTargets} requests={requests} majorServices={allMajorServices} />}
         {tab === "captions"  && <Captions captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates} majorServices={allMajorServices} minorServices={allMinorServices} />}
         {tab === "scheduler" && <Scheduler requests={requests} setRequests={setRequests} captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates}
+          targets={targets} setTargets={setTargets}
           majorServices={allMajorServices} minorServices={allMinorServices} extraServices={extraServices} setExtraServices={setExtraServices} isAdmin={isAdmin} />}
+        {tab === "reports" && <Reports requests={requests} channelStats={channelStats} targets={targets} captions={captions}
+          majorServices={allMajorServices} minorServices={allMinorServices} allServicesList={allServicesList} extraServices={extraServices} />}
       </div>
     </div>
   );
@@ -309,7 +356,6 @@ function Login() {
 /* ---------------------------------- DASHBOARD ---------------------------------- */
 
 function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERVICES }) {
-  const [showAllCoverage, setShowAllCoverage] = useState(false);
   const currentMonth = new Date().toISOString().slice(0, 7);
   const monthRequests = useMemo(() => requests.filter(r => r.dateLogged.slice(0, 7) === currentMonth), [requests, currentMonth]);
 
@@ -355,50 +401,8 @@ function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERV
       </div>
 
       <Card style={{ marginTop: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 700 }}>Service Coverage — {monthLabel(currentMonth)}</div>
-          <div style={{ fontSize: 11.5, color: "#5B675F" }}>{coverage.covered.length} of {coverage.total} services covered this month</div>
-        </div>
-
-        {coverage.flagged.length === 0 ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: "#146356" + "12", borderRadius: 8, fontSize: 12.5, color: "#146356", fontWeight: 600 }}>
-            <CheckCircle2 size={15} /> Every service has at least one request logged this month.
-          </div>
-        ) : (
-          <>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 12, color: "#C4544A", fontWeight: 700 }}>
-              <AlertTriangle size={14} /> {coverage.flagged.length} service{coverage.flagged.length > 1 ? "s" : ""} still need{coverage.flagged.length === 1 ? "s" : ""} content this month
-            </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 130, overflowY: "auto" }}>
-              {coverage.flagged.map(s => (
-                <span key={s.name} style={{ fontSize: 11, fontWeight: 600, color: "#C4544A", background: "#C4544A1A", padding: "4px 10px", borderRadius: 12, border: "1px solid #C4544A33" }}>
-                  {s.name}
-                </span>
-              ))}
-            </div>
-          </>
-        )}
-
-        <button onClick={() => setShowAllCoverage(v => !v)} style={{ display: "flex", alignItems: "center", gap: 4, border: "none", background: "transparent", color: "#5B675F", fontSize: 11.5, fontWeight: 600, marginTop: 12, padding: 0 }}>
-          {showAllCoverage ? <ChevronUp size={13} /> : <ChevronDown size={13} />} {showAllCoverage ? "Hide" : "Show"} full breakdown ({coverage.total} services)
-        </button>
-
-        {showAllCoverage && (
-          <div style={{ marginTop: 10, maxHeight: 200, overflowY: "auto", borderTop: "1px solid #EEF0EC", paddingTop: 10 }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <tbody>
-                {[...coverage.covered, ...coverage.flagged].map(s => (
-                  <tr key={s.name} style={{ borderBottom: "1px solid #F2F3F0" }}>
-                    <td style={{ padding: "5px 8px" }}>{s.name}</td>
-                    <td style={{ padding: "5px 8px", textAlign: "right" }} className="mono">
-                      <span style={{ color: s.count === 0 ? "#C4544A" : "#146356", fontWeight: 600 }}>{s.count}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <CoverageLegend />
+        <CoverageGrid covered={coverage.covered} flagged={coverage.flagged} total={coverage.total} periodLabel={monthLabel(currentMonth)} />
       </Card>
 
       <Card title="Channel Snapshot" style={{ marginTop: 16 }}>
@@ -619,27 +623,35 @@ function RequestModal({ onClose, onSave, user, majorServices = MAJOR_SERVICES, m
 function Channels({ channelStats, setChannelStats }) {
   const [selected, setSelected] = useState(CHANNELS[0].id);
   const [open, setOpen] = useState(false);
+  const [editingRow, setEditingRow] = useState(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [growthView, setGrowthView] = useState("month");
   const channel = CHANNELS.find(c => c.id === selected);
   const rows = (channelStats[selected] || []).sort((a, b) => a.month.localeCompare(b.month));
 
-  const addEntry = (entry) => {
+  const saveEntry = (chId, entry) => {
     setChannelStats(cs => {
-      const existing = (cs[selected] || []).filter(r => r.month !== entry.month);
-      const prior = [...(cs[selected] || [])].sort((a, b) => a.month.localeCompare(b.month)).filter(r => r.month < entry.month).pop();
+      const existing = (cs[chId] || []).filter(r => r.month !== entry.month);
+      const prior = [...(cs[chId] || [])].sort((a, b) => a.month.localeCompare(b.month)).filter(r => r.month < entry.month).pop();
       const growthPct = prior ? ((entry.followers - prior.followers) / prior.followers) * 100 : 0;
-      return { ...cs, [selected]: [...existing, { ...entry, growthPct }] };
+      return { ...cs, [chId]: [...existing, { ...entry, growthPct }] };
     });
-    setOpen(false);
   };
+
+  const addEntry = (entry) => { saveEntry(selected, entry); setOpen(false); setEditingRow(null); };
 
   const last = rows[rows.length - 1];
   const growthRating = last ? rate(channel.platform, "growth", last.growthPct) : null;
   const engRating = last ? rate(channel.platform, "engagement", last.engagement30) : null;
+  const chartData = aggregateChannelStats(rows, growthView);
 
   return (
     <div>
       <Header title="Channels" sub="Growth and engagement, logged manually per month" action={
-        <button onClick={() => setOpen(true)} style={primaryBtn}><Plus size={15} /> Log Monthly Stats</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setBulkOpen(true)} style={{ ...primaryBtn, background: "#fff", color: "#146356", border: "1px solid #146356" }}><Grid2X2 size={15} /> Bulk Monthly Entry</button>
+          <button onClick={() => { setEditingRow(null); setOpen(true); }} style={primaryBtn}><Plus size={15} /> Log Monthly Stats</button>
+        </div>
       } />
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
@@ -663,22 +675,41 @@ function Channels({ channelStats, setChannelStats }) {
             <StatCard label="Next Month Target" value={Number(Math.round(last.followers * (1 + (last.targetGrowthPct ?? 1) / 100))).toLocaleString()} sub={`at ${(last.targetGrowthPct ?? 1)}% target`} />
           </div>
 
-          <Card title={`${channel.name} — Follower Growth`}>
-            <ResponsiveContainer width="100%" height={230}>
-              <LineChart data={rows.map(r => ({ ...r, label: monthLabel(r.month) }))}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#5B675F" }} />
-                <YAxis tick={{ fontSize: 11, fill: "#5B675F" }} domain={["auto", "auto"]} />
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} />
-                <Line type="monotone" dataKey="followers" stroke={channel.color} strokeWidth={2.5} dot={{ r: 3 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </Card>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 10 }}>
+            {["month", "quarter", "year"].map(g => (
+              <button key={g} onClick={() => setGrowthView(g)} style={pillBtn(growthView === g)}>{g[0].toUpperCase() + g.slice(1)}ly</button>
+            ))}
+          </div>
 
-          <Card title="Monthly Log" style={{ marginTop: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+            <Card title={`${channel.name} — Average Growth Rate`}>
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5B675F" }} />
+                  <YAxis tick={{ fontSize: 11, fill: "#5B675F" }} />
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} formatter={v => `${Number(v).toFixed(2)}%`} />
+                  <Line type="monotone" dataKey="growthPct" name="Growth %" stroke={channel.color} strokeWidth={2.5} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </Card>
+            <Card title={`${channel.name} — Engagement Rate`}>
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5B675F" }} />
+                  <YAxis tick={{ fontSize: 11, fill: "#5B675F" }} />
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} formatter={v => `${Number(v).toFixed(2)}%`} />
+                  <Line type="monotone" dataKey="engagement30" name="Engagement %" stroke="#E8A33D" strokeWidth={2.5} dot={{ r: 3 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </Card>
+          </div>
+
+          <Card title="Monthly Log">
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
               <thead><tr style={{ textAlign: "left", color: "#5B675F", borderBottom: "1px solid #E3E6E0" }}>
-                <th style={th}>Month</th><th style={th}>Followers</th><th style={th}>Growth %</th><th style={th}>Rating</th><th style={th}>30d Engagement</th><th style={th}>Rating</th>
+                <th style={th}>Month</th><th style={th}>Followers</th><th style={th}>Growth %</th><th style={th}>Rating</th><th style={th}>30d Engagement</th><th style={th}>Rating</th><th style={th}></th>
               </tr></thead>
               <tbody>
                 {[...rows].reverse().map(r => (
@@ -689,6 +720,9 @@ function Channels({ channelStats, setChannelStats }) {
                     <td style={td}><RatingBadge label={rate(channel.platform, "growth", r.growthPct)} /></td>
                     <td style={td} className="mono">{r.engagement30}%</td>
                     <td style={td}><RatingBadge label={rate(channel.platform, "engagement", r.engagement30)} /></td>
+                    <td style={td}>
+                      <button onClick={() => { setEditingRow(r); setOpen(true); }} style={{ border: "none", background: "transparent", color: "#146356" }}><Pencil size={13} /></button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -697,27 +731,28 @@ function Channels({ channelStats, setChannelStats }) {
         </>
       ) : <Card><Empty text={`No stats logged for ${channel.name} yet.`} /></Card>}
 
-      {open && <ChannelEntryModal channel={channel} onClose={() => setOpen(false)} onSave={addEntry} lastTarget={last?.targetGrowthPct ?? 1} />}
+      {open && <ChannelEntryModal channel={channel} editing={editingRow} onClose={() => { setOpen(false); setEditingRow(null); }} onSave={addEntry} lastTarget={last?.targetGrowthPct ?? 1} />}
+      {bulkOpen && <BulkChannelEntryModal channelStats={channelStats} onSave={saveEntry} onClose={() => setBulkOpen(false)} />}
     </div>
   );
 }
 
-function ChannelEntryModal({ channel, onClose, onSave, lastTarget }) {
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
-  const [followers, setFollowers] = useState("");
-  const [eng15, setEng15] = useState("");
-  const [eng30, setEng30] = useState("");
-  const [targetGrowthPct, setTargetGrowthPct] = useState(lastTarget);
+function ChannelEntryModal({ channel, onClose, onSave, lastTarget, editing }) {
+  const [month, setMonth] = useState(editing?.month || new Date().toISOString().slice(0, 7));
+  const [followers, setFollowers] = useState(editing?.followers ?? "");
+  const [eng15, setEng15] = useState(editing?.engagement15 ?? "");
+  const [eng30, setEng30] = useState(editing?.engagement30 ?? "");
+  const [targetGrowthPct, setTargetGrowthPct] = useState(editing?.targetGrowthPct ?? lastTarget);
 
   return (
     <div style={overlay}>
       <div style={modal}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>Log Stats — {channel.name}</div>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>{editing ? "Edit" : "Log"} Stats — {channel.name}</div>
           <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
         </div>
         <label style={label}>Month</label>
-        <input type="month" value={month} onChange={e => setMonth(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 12 }} />
+        <input type="month" value={month} onChange={e => setMonth(e.target.value)} disabled={!!editing} style={{ ...inputStyle, width: "100%", marginBottom: 12, opacity: editing ? 0.6 : 1 }} />
         <label style={label}>Follower count</label>
         <input type="number" value={followers} onChange={e => setFollowers(e.target.value)} placeholder="e.g. 308284" style={{ ...inputStyle, width: "100%", marginBottom: 12 }} />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
@@ -730,7 +765,74 @@ function ChannelEntryModal({ channel, onClose, onSave, lastTarget }) {
           disabled={!followers}
           onClick={() => onSave({ month, followers: Number(followers), engagement15: Number(eng15 || 0), engagement30: Number(eng30 || 0), targetGrowthPct: Number(targetGrowthPct) })}
           style={{ ...primaryBtn, width: "100%", justifyContent: "center", opacity: !followers ? 0.5 : 1 }}
-        >Save Entry</button>
+        >{editing ? "Save Changes" : "Save Entry"}</button>
+      </div>
+    </div>
+  );
+}
+
+function BulkChannelEntryModal({ channelStats, onSave, onClose }) {
+  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [rows, setRows] = useState(() => {
+    const init = {};
+    CHANNELS.forEach(c => {
+      const existing = (channelStats[c.id] || []).find(r => r.month === month);
+      init[c.id] = { followers: existing?.followers ?? "", engagement15: existing?.engagement15 ?? "", engagement30: existing?.engagement30 ?? "", targetGrowthPct: existing?.targetGrowthPct ?? 1 };
+    });
+    return init;
+  });
+
+  const loadMonth = (m) => {
+    setMonth(m);
+    const init = {};
+    CHANNELS.forEach(c => {
+      const existing = (channelStats[c.id] || []).find(r => r.month === m);
+      init[c.id] = { followers: existing?.followers ?? "", engagement15: existing?.engagement15 ?? "", engagement30: existing?.engagement30 ?? "", targetGrowthPct: existing?.targetGrowthPct ?? 1 };
+    });
+    setRows(init);
+  };
+
+  const update = (chId, field, value) => setRows(r => ({ ...r, [chId]: { ...r[chId], [field]: value } }));
+
+  const saveAll = () => {
+    CHANNELS.forEach(c => {
+      const r = rows[c.id];
+      if (r.followers !== "" && r.followers !== null) {
+        onSave(c.id, { month, followers: Number(r.followers), engagement15: Number(r.engagement15 || 0), engagement30: Number(r.engagement30 || 0), targetGrowthPct: Number(r.targetGrowthPct || 1) });
+      }
+    });
+    onClose();
+  };
+
+  return (
+    <div style={overlay}>
+      <div style={{ ...modal, width: 640 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>Bulk Monthly Entry</div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
+        </div>
+        <label style={label}>Month</label>
+        <input type="month" value={month} onChange={e => loadMonth(e.target.value)} style={{ ...inputStyle, width: 200, marginBottom: 14 }} />
+        <div style={{ maxHeight: 360, overflowY: "auto", border: "1px solid #E3E6E0", borderRadius: 8 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead><tr style={{ textAlign: "left", color: "#5B675F", background: "#F5F6F1", position: "sticky", top: 0 }}>
+              <th style={{ padding: "7px 8px" }}>Channel</th><th style={{ padding: "7px 8px" }}>Followers</th><th style={{ padding: "7px 8px" }}>15d Eng %</th><th style={{ padding: "7px 8px" }}>30d Eng %</th><th style={{ padding: "7px 8px" }}>Target %</th>
+            </tr></thead>
+            <tbody>
+              {CHANNELS.map(c => (
+                <tr key={c.id} style={{ borderTop: "1px solid #EEF0EC" }}>
+                  <td style={{ padding: "6px 8px", fontWeight: 600 }}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: c.color }} />{c.name}</div></td>
+                  <td style={{ padding: "6px 8px" }}><input type="number" value={rows[c.id]?.followers ?? ""} onChange={e => update(c.id, "followers", e.target.value)} style={{ ...inputStyle, width: 100, fontSize: 12, padding: "5px 7px" }} /></td>
+                  <td style={{ padding: "6px 8px" }}><input type="number" step="0.1" value={rows[c.id]?.engagement15 ?? ""} onChange={e => update(c.id, "engagement15", e.target.value)} style={{ ...inputStyle, width: 70, fontSize: 12, padding: "5px 7px" }} /></td>
+                  <td style={{ padding: "6px 8px" }}><input type="number" step="0.1" value={rows[c.id]?.engagement30 ?? ""} onChange={e => update(c.id, "engagement30", e.target.value)} style={{ ...inputStyle, width: 70, fontSize: 12, padding: "5px 7px" }} /></td>
+                  <td style={{ padding: "6px 8px" }}><input type="number" step="0.1" value={rows[c.id]?.targetGrowthPct ?? ""} onChange={e => update(c.id, "targetGrowthPct", e.target.value)} style={{ ...inputStyle, width: 60, fontSize: 12, padding: "5px 7px" }} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ fontSize: 10.5, color: "#9AA39B", margin: "10px 0 16px" }}>Only channels with a follower count filled in will be saved — leave the rest blank to skip them for this month.</div>
+        <button onClick={saveAll} style={{ ...primaryBtn, width: "100%", justifyContent: "center" }}>Save All Channels</button>
       </div>
     </div>
   );
@@ -948,7 +1050,8 @@ function CaptionCard({ c, onStatus, onRemove }) {
   const over = len > limit;
 
   const copy = () => {
-    navigator.clipboard?.writeText(c.textEn).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
+    const hashtagLine = c.hashtags?.length ? `\n\n${c.hashtags.map(h => `#${h.replace(/^#/, "")}`).join(" ")}` : "";
+    navigator.clipboard?.writeText(c.textEn + hashtagLine).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
   };
 
   return (
@@ -1089,7 +1192,7 @@ function CaptionModal({ onClose, onSave, templates, majorServices = MAJOR_SERVIC
 
 /* ---------------------------------- SCHEDULER ---------------------------------- */
 
-function Scheduler({ requests, setRequests, captions, setCaptions, templates, setTemplates, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES, extraServices = { major: [], minor: [] }, setExtraServices, isAdmin }) {
+function Scheduler({ requests, setRequests, captions, setCaptions, templates, setTemplates, targets, setTargets, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES, extraServices = { major: [], minor: [] }, setExtraServices, isAdmin }) {
   const [view, setView] = useState("month");
   const [cursor, setCursor] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(null);
@@ -1162,13 +1265,27 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
     });
   };
 
+  const renameService = (type, oldName, newName) => {
+    if (!newName.trim() || newName === oldName) return;
+    const key = type === "major" ? "major" : "minor";
+    setExtraServices(prev => ({ ...prev, [key]: prev[key].map(s => s === oldName ? newName : s) }));
+    setRequests(rs => rs.map(r => r.services?.includes(oldName) ? { ...r, services: r.services.map(s => s === oldName ? newName : s) } : r));
+    setCaptions(cs => cs.map(c => c.services?.includes(oldName) ? { ...c, services: c.services.map(s => s === oldName ? newName : s) } : c));
+    if (setTargets) setTargets(ts => ts.map(t => t.scope === "service" && t.target === oldName ? { ...t, target: newName } : t));
+  };
+
+  const deleteService = (type, name) => {
+    const key = type === "major" ? "major" : "minor";
+    setExtraServices(prev => ({ ...prev, [key]: prev[key].filter(s => s !== name) }));
+  };
+
   return (
     <div>
       <Header title="Scheduler" sub="Color-coded planning calendar across channels" action={
         <div style={{ display: "flex", gap: 8 }}>
           {isAdmin && (
             <button onClick={() => setAddServiceOpen(true)} style={{ ...primaryBtn, background: "#fff", color: "#146356", border: "1px solid #146356" }}>
-              <ShieldCheck size={14} /> Add Service
+              <ShieldCheck size={14} /> Manage Services
             </button>
           )}
           <button onClick={() => setNewModalDate(todayStr)} style={primaryBtn}><Plus size={15} /> New Scheduled Post</button>
@@ -1379,7 +1496,13 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
         />
       )}
 
-      {addServiceOpen && <AddServiceModal onClose={() => setAddServiceOpen(false)} onAdd={addService} />}
+      {addServiceOpen && (
+        <ServiceManagerModal
+          majorServices={majorServices} minorServices={minorServices}
+          onClose={() => setAddServiceOpen(false)}
+          onAdd={addService} onRename={renameService} onDelete={deleteService}
+        />
+      )}
     </div>
   );
 }
@@ -1452,28 +1575,64 @@ function PostDetailModal({ post, captions, extraServices, onClose, onStatusChang
   );
 }
 
-function AddServiceModal({ onClose, onAdd }) {
+function ServiceManagerModal({ majorServices, minorServices, onClose, onAdd, onRename, onDelete }) {
   const [type, setType] = useState("major");
-  const [name, setName] = useState("");
+  const [newName, setNewName] = useState("");
+  const [editing, setEditing] = useState(null); // service name currently being renamed
+  const [editValue, setEditValue] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const list = type === "major" ? majorServices : minorServices;
+
+  const startEdit = (s) => { setEditing(s); setEditValue(s); };
+  const saveEdit = () => { onRename(type, editing, editValue.trim()); setEditing(null); };
+
   return (
     <div style={overlay}>
-      <div style={modal}>
+      <div style={{ ...modal, width: 460 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>Add Service <span style={{ fontSize: 11, fontWeight: 600, color: "#E8A33D", background: "#E8A33D1A", padding: "2px 8px", borderRadius: 10, marginLeft: 6 }}>Admin</span></div>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>Manage Services <span style={{ fontSize: 11, fontWeight: 600, color: "#E8A33D", background: "#E8A33D1A", padding: "2px 8px", borderRadius: 10, marginLeft: 6 }}>Admin</span></div>
           <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
         </div>
-        <label style={label}>Type</label>
-        <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-          <button onClick={() => setType("major")} style={pillBtn(type === "major")}>Major</button>
-          <button onClick={() => setType("minor")} style={pillBtn(type === "minor")}>Minor</button>
+
+        <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+          <button onClick={() => { setType("major"); setEditing(null); }} style={pillBtn(type === "major")}>Major ({majorServices.length})</button>
+          <button onClick={() => { setType("minor"); setEditing(null); }} style={pillBtn(type === "minor")}>Minor ({minorServices.length})</button>
         </div>
-        <label style={label}>Service name</label>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. NCLEX New Zealand" style={{ ...inputStyle, width: "100%", marginBottom: 20 }} />
-        <button
-          disabled={!name.trim()}
-          onClick={() => { onAdd(type, name.trim()); onClose(); }}
-          style={{ ...primaryBtn, width: "100%", justifyContent: "center", opacity: !name.trim() ? 0.5 : 1 }}
-        >Add Service</button>
+
+        <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid #E3E6E0", borderRadius: 8, marginBottom: 12 }}>
+          {list.map(s => (
+            <div key={s} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", borderBottom: "1px solid #EEF0EC" }}>
+              {editing === s ? (
+                <>
+                  <input value={editValue} onChange={e => setEditValue(e.target.value)} style={{ ...inputStyle, flex: 1, fontSize: 12.5, padding: "5px 8px" }} autoFocus />
+                  <button onClick={saveEdit} style={{ border: "none", background: "transparent", color: "#146356", fontSize: 11, fontWeight: 700 }}>Save</button>
+                  <button onClick={() => setEditing(null)} style={{ border: "none", background: "transparent", color: "#9AA39B", fontSize: 11, fontWeight: 700 }}>Cancel</button>
+                </>
+              ) : (
+                <>
+                  <div style={{ flex: 1, fontSize: 12.5 }}>{s}</div>
+                  <button onClick={() => startEdit(s)} style={{ border: "none", background: "transparent", color: "#146356" }}><Pencil size={12} /></button>
+                  {confirmDelete === s ? (
+                    <button onClick={() => { onDelete(type, s); setConfirmDelete(null); }} style={{ border: "none", background: "transparent", color: "#C4544A", fontSize: 10.5, fontWeight: 700 }}>Confirm?</button>
+                  ) : (
+                    <button onClick={() => setConfirmDelete(s)} style={{ border: "none", background: "transparent", color: "#C4544A" }}><Trash2 size={12} /></button>
+                  )}
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 10.5, color: "#9AA39B", marginBottom: 14 }}>Renaming updates every existing request, caption, and target that uses this service. Deleting only removes it from future pickers — existing history keeps the old tag as text.</div>
+
+        <label style={label}>Add new {type} service</label>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. NCLEX New Zealand" style={{ ...inputStyle, flex: 1 }} />
+          <button
+            disabled={!newName.trim()}
+            onClick={() => { onAdd(type, newName.trim()); setNewName(""); }}
+            style={{ ...primaryBtn, opacity: !newName.trim() ? 0.5 : 1 }}
+          ><Plus size={14} /></button>
+        </div>
       </div>
     </div>
   );
@@ -1775,7 +1934,213 @@ function TemplateEditModal({ template, onClose, onSave }) {
 }
 
 
-/* ---------------------------------- SHARED UI ---------------------------------- */
+/* ---------------------------------- REPORTS ---------------------------------- */
+
+function Reports({ requests, channelStats, targets, captions, majorServices, minorServices, allServicesList, extraServices }) {
+  const [periodType, setPeriodType] = useState("month");
+  const [cursor, setCursor] = useState(new Date());
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+
+  const { start, end, label } = useMemo(() => getReportRange(periodType, cursor, customStart, customEnd), [periodType, cursor, customStart, customEnd]);
+
+  const shift = (amt) => setCursor(c => {
+    const d = new Date(c);
+    if (periodType === "week") d.setDate(d.getDate() + amt * 7);
+    else if (periodType === "quarter") d.setMonth(d.getMonth() + amt * 3);
+    else d.setMonth(d.getMonth() + amt);
+    return d;
+  });
+
+  const requestsInRange = useMemo(() => requests.filter(r => r.dateLogged >= start && r.dateLogged <= end), [requests, start, end]);
+  const scheduledInRange = useMemo(() => requests.filter(r => r.scheduledDate && r.scheduledDate >= start && r.scheduledDate <= end), [requests, start, end]);
+
+  const totalRequests = requestsInRange.length;
+  const completedCount = requestsInRange.filter(r => r.status === "Completed").length;
+  const completionRate = totalRequests ? Math.round((completedCount / totalRequests) * 100) : 0;
+
+  const postStatusCounts = useMemo(() => {
+    const counts = {}; POST_STATUSES.forEach(s => { counts[s] = 0; });
+    scheduledInRange.forEach(r => { const s = r.postStatus || "Pending"; if (counts[s] !== undefined) counts[s] += 1; });
+    return counts;
+  }, [scheduledInRange]);
+
+  const byService = useMemo(() => {
+    const counts = {};
+    requestsInRange.forEach(r => r.services.forEach(s => { counts[s] = (counts[s] || 0) + 1; }));
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name, count]) => ({ name, count }));
+  }, [requestsInRange]);
+
+  const byCreative = useMemo(() => {
+    const counts = {};
+    requestsInRange.forEach(r => { counts[r.creativeType] = (counts[r.creativeType] || 0) + 1; });
+    return Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
+  }, [requestsInRange]);
+
+  const byDept = useMemo(() => {
+    const counts = {};
+    requestsInRange.forEach(r => { if (r.dept) counts[r.dept] = (counts[r.dept] || 0) + 1; });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [requestsInRange]);
+
+  const byPriority = useMemo(() => {
+    const counts = {};
+    requestsInRange.forEach(r => { if (r.priority) counts[r.priority] = (counts[r.priority] || 0) + 1; });
+    return PRIORITIES.map(p => ({ name: p, count: counts[p] || 0 })).filter(p => p.count > 0);
+  }, [requestsInRange]);
+
+  const coverage = useMemo(() => {
+    const counts = {}; allServicesList.forEach(s => { counts[s] = 0; });
+    requestsInRange.forEach(r => r.services.forEach(s => { if (counts[s] !== undefined) counts[s] += 1; }));
+    const list = Object.entries(counts).map(([name, count]) => ({ name, count }));
+    return { flagged: list.filter(s => s.count === 0).sort((a, b) => a.name.localeCompare(b.name)), covered: list.filter(s => s.count > 0).sort((a, b) => b.count - a.count), total: list.length };
+  }, [requestsInRange, allServicesList]);
+
+  const channelPerf = useMemo(() => CHANNELS.map(ch => {
+    const rows = (channelStats[ch.id] || []).filter(r => r.month >= start.slice(0, 7) && r.month <= end.slice(0, 7)).sort((a, b) => a.month.localeCompare(b.month));
+    const latest = rows[rows.length - 1];
+    return { channel: ch, latest, growthRating: latest ? rate(ch.platform, "growth", latest.growthPct) : null, engRating: latest ? rate(ch.platform, "engagement", latest.engagement30) : null };
+  }), [channelStats, start, end]);
+
+  const withData = channelPerf.filter(c => c.latest);
+  const avgGrowth = withData.length ? (withData.reduce((s, c) => s + c.latest.growthPct, 0) / withData.length) : null;
+  const avgEngagement = withData.length ? (withData.reduce((s, c) => s + c.latest.engagement30, 0) / withData.length) : null;
+
+  const targetAchievement = useMemo(() => targets.map(t => {
+    const actual = requestsInRange.filter(r => r.status === "Completed" && (t.scope === "channel" ? r.channel === t.target : r.services.includes(t.target))).length;
+    return { ...t, actual };
+  }), [targets, requestsInRange]);
+
+  return (
+    <div className="report-page">
+      <Header title="Reports" sub="Consolidated stats across the app, by date range" action={
+        <button className="no-print" onClick={() => window.print()} style={primaryBtn}><Printer size={15} /> Print / Export PDF</button>
+      } />
+
+      <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "flex", gap: 6 }}>
+          {["week", "month", "quarter", "custom"].map(p => (
+            <button key={p} onClick={() => setPeriodType(p)} style={pillBtn(periodType === p)}>{p[0].toUpperCase() + p.slice(1)}</button>
+          ))}
+        </div>
+        {periodType === "custom" ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} style={inputStyle} />
+            <span style={{ fontSize: 12, color: "#5B675F" }}>to</span>
+            <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} style={inputStyle} />
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => shift(-1)} style={navBtn}><ChevronLeft size={16} /></button>
+            <div style={{ fontSize: 13, fontWeight: 700, minWidth: 140, textAlign: "center" }}>{label}</div>
+            <button onClick={() => shift(1)} style={navBtn}><ChevronRight size={16} /></button>
+          </div>
+        )}
+      </div>
+
+      <div style={{ fontSize: 11, color: "#9AA39B", marginBottom: 14 }} className="no-print">Reporting period: {start} to {end}</div>
+
+      {/* Executive summary */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 18 }}>
+        <StatCard label="Total Requests" value={totalRequests} />
+        <StatCard label="Completion Rate" value={`${completionRate}%`} accent={completionRate >= 70 ? "#146356" : "#E8A33D"} />
+        <StatCard label="Avg. Channel Growth" value={avgGrowth === null ? "—" : `${avgGrowth.toFixed(2)}%`} />
+        <StatCard label="Avg. Engagement" value={avgEngagement === null ? "—" : `${avgEngagement.toFixed(2)}%`} />
+      </div>
+
+      <Card title="Post Status Summary" style={{ marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10 }}>
+          {POST_STATUSES.map(s => {
+            const Icon = POST_STATUS_ICON[s];
+            return (
+              <div key={s} style={{ border: "1px solid #E3E6E0", borderRadius: 8, padding: "8px 10px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5, color: POST_STATUS_COLOR[s], fontSize: 10.5, fontWeight: 700, marginBottom: 3 }}><Icon size={12} /> {s}</div>
+                <div className="mono" style={{ fontSize: 18, fontWeight: 600 }}>{postStatusCounts[s]}</div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+        <FlexibleChart title="Requests per Service" data={byService} color="#146356" empty="No requests logged in this period." />
+        <FlexibleChart title="Requests by Creative Type" data={byCreative} color="#E8A33D" empty="No requests logged in this period." defaultType="pie" />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+        <Card title="By Department">
+          {byDept.length === 0 ? <Empty text="No department data in this period." /> : byDept.map(([name, count]) => (
+            <div key={name} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "6px 0", borderBottom: "1px solid #F2F3F0" }}>
+              <span>{name}</span><span className="mono" style={{ fontWeight: 600 }}>{count}</span>
+            </div>
+          ))}
+        </Card>
+        <Card title="By Priority">
+          {byPriority.length === 0 ? <Empty text="No priority data in this period." /> : byPriority.map(p => (
+            <div key={p.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, padding: "6px 0", borderBottom: "1px solid #F2F3F0" }}>
+              <span style={{ color: PRIORITY_COLOR[p.name], fontWeight: 600 }}>{p.name}</span><span className="mono" style={{ fontWeight: 600 }}>{p.count}</span>
+            </div>
+          ))}
+        </Card>
+      </div>
+
+      <Card style={{ marginBottom: 16 }}>
+        <CoverageLegend />
+        <CoverageGrid covered={coverage.covered} flagged={coverage.flagged} total={coverage.total} />
+      </Card>
+
+      <Card title="Channel Performance" style={{ marginBottom: 16 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+          <thead><tr style={{ textAlign: "left", color: "#5B675F", borderBottom: "1px solid #E3E6E0" }}>
+            <th style={th}>Channel</th><th style={th}>Followers</th><th style={th}>Growth</th><th style={th}>Rating</th><th style={th}>Engagement</th><th style={th}>Rating</th>
+          </tr></thead>
+          <tbody>
+            {channelPerf.map(({ channel, latest, growthRating, engRating }) => (
+              <tr key={channel.id} style={{ borderBottom: "1px solid #EEF0EC" }}>
+                <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: channel.color }} />{channel.name}</div></td>
+                {latest ? (
+                  <>
+                    <td style={td} className="mono">{Number(latest.followers).toLocaleString()}</td>
+                    <td style={td} className="mono">{latest.growthPct.toFixed(2)}%</td>
+                    <td style={td}><RatingBadge label={growthRating} /></td>
+                    <td style={td} className="mono">{latest.engagement30}%</td>
+                    <td style={td}><RatingBadge label={engRating} /></td>
+                  </>
+                ) : <td colSpan={5} style={{ ...td, color: "#9AA39B" }}>No stats logged for this period</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+
+      <Card title="Target Achievement">
+        {targetAchievement.length === 0 ? <Empty text="No targets set yet." /> : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+            <thead><tr style={{ textAlign: "left", color: "#5B675F", borderBottom: "1px solid #E3E6E0" }}>
+              <th style={th}>Target</th><th style={th}>Scope</th><th style={th}>Goal (per {"{period}"})</th><th style={th}>Actual (Completed, this report range)</th>
+            </tr></thead>
+            <tbody>
+              {targetAchievement.map(t => {
+                const name = t.scope === "channel" ? CHANNELS.find(c => c.id === t.target)?.name : t.target;
+                return (
+                  <tr key={t.id} style={{ borderBottom: "1px solid #EEF0EC" }}>
+                    <td style={td}>{name}</td>
+                    <td style={{ ...td, textTransform: "capitalize" }}>{t.scope} · per {t.period}</td>
+                    <td style={td} className="mono">{t.goal}</td>
+                    <td className="mono" style={{ ...td, fontWeight: 700, color: t.actual >= t.goal ? "#146356" : "#0E2B27" }}>{t.actual}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+        <div style={{ fontSize: 10.5, color: "#9AA39B", marginTop: 10 }}>Goals are set per week/month individually — compare against the actual count for context, since the report range may span more or less than one goal period.</div>
+      </Card>
+    </div>
+  );
+}
+
+
 
 function Header({ title, sub, action }) {
   return (
@@ -1894,6 +2259,41 @@ function FlexibleChart({ title, data, color = "#146356", empty, defaultType = "b
     </Card>
   );
 }
+
+/* ---------------------------------- SHARED UI ---------------------------------- */
+
+function CoverageGrid({ covered, flagged, total, periodLabel }) {
+  return (
+    <>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 700 }}>Service Coverage{periodLabel ? ` — ${periodLabel}` : ""}</div>
+        <div style={{ fontSize: 11.5, color: "#5B675F" }}>{covered.length} of {total} services covered</div>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 260, overflowY: "auto" }}>
+        {flagged.map(s => (
+          <span key={s.name} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color: "#C4544A", background: "#C4544A1A", padding: "4px 10px", borderRadius: 12, border: "1px solid #C4544A33" }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#C4544A" }} /> {s.name}
+          </span>
+        ))}
+        {covered.map(s => (
+          <span key={s.name} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 600, color: "#146356", background: "#14635614", padding: "4px 10px", borderRadius: 12, border: "1px solid #14635633" }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#146356" }} /> {s.name} <span className="mono" style={{ opacity: 0.7 }}>{s.count}</span>
+          </span>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function CoverageLegend() {
+  return (
+    <div style={{ display: "flex", gap: 14, fontSize: 10.5, color: "#5B675F", marginBottom: 10 }}>
+      <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "#C4544A" }} /> Not covered</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "#146356" }} /> Covered</span>
+    </div>
+  );
+}
+
 
 function Card({ title, children, style }) {
   return (
