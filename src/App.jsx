@@ -11,7 +11,7 @@ import {
   ChevronDown, Filter, ArrowUp, ArrowDown, CheckCircle2, Clock,
   Circle, Search, AlertTriangle, ChevronUp, MessageSquareText, Copy, Sparkles, Wand2, Hash, FileText,
   CalendarDays, ChevronLeft, ChevronRight, Bell, Ban, RotateCcw, Pencil, Trash2, Smile,
-  Bold, Italic, CaseUpper, CaseLower, CaseSensitive, ShieldCheck, Maximize2, BarChart3, Printer, Grid2X2
+  Bold, Italic, CaseUpper, CaseLower, CaseSensitive, ShieldCheck, Maximize2, BarChart3, Printer, Grid2X2, PauseCircle
 } from "lucide-react";
 
 /* ---------------------------------- DATA ---------------------------------- */
@@ -45,6 +45,7 @@ const CHANNELS = [
   { id: "yt",      name: "IPASS YouTube",                  platform: "YouTube", color: "#C4544A" },
   { id: "tiktok",  name: "IPASS TikTok",                   platform: "TikTok", color: "#2B2B2B" },
 ];
+const EXTRA_CHANNEL_COLOR_POOL = ["#7A6FB0", "#4C8FBD", "#A8763E", "#5C8A3A", "#8A4B6B", "#C4544A", "#E8A33D"];
 
 const STATUS = ["Pending", "In Progress", "Completed"];
 const STATUS_ICON = { "Pending": Circle, "In Progress": Clock, "Completed": CheckCircle2 };
@@ -53,9 +54,9 @@ const DEPTS = ["Social Media", "SEO", "Digital Marketing", "Operations", "Manage
 const PRIORITIES = ["Low", "Normal", "High", "Urgent"];
 const PRIORITY_COLOR = { Low: "#9AA39B", Normal: "#146356", High: "#E8A33D", Urgent: "#C4544A" };
 const PURPOSES = ["Ads", "YouTube", "TikTok", "Facebook/IG", "Website", "Other"];
-const POST_STATUSES = ["Pending", "Posted", "Cancelled", "Rescheduled", "Flagged"];
-const POST_STATUS_COLOR = { "Pending": "#9AA39B", "Posted": "#146356", "Cancelled": "#C4544A", "Rescheduled": "#E8A33D", "Flagged": "#B0538A" };
-const POST_STATUS_ICON = { "Pending": Circle, "Posted": CheckCircle2, "Cancelled": Ban, "Rescheduled": RotateCcw, "Flagged": AlertTriangle };
+const POST_STATUSES = ["Pending", "Posted", "Cancelled", "Rescheduled", "Flagged", "Hold"];
+const POST_STATUS_COLOR = { "Pending": "#9AA39B", "Posted": "#146356", "Cancelled": "#C4544A", "Rescheduled": "#E8A33D", "Flagged": "#B0538A", "Hold": "#3E7CB1" };
+const POST_STATUS_ICON = { "Pending": Circle, "Posted": CheckCircle2, "Cancelled": Ban, "Rescheduled": RotateCcw, "Flagged": AlertTriangle, "Hold": PauseCircle };
 
 const BENCHMARKS = {
   Facebook:  { growth: [[0.5,"Low"],[1,"Healthy"],[2,"Good"],[3,"Very Good"],[Infinity,"Excellent"]], engagement: [[0.5,"Low"],[1,"Average"],[2,"Strong"],[3,"Excellent"],[Infinity,"Top-Performing"]] },
@@ -79,7 +80,7 @@ function rate(platform, kind, value) {
 
 const monthLabel = (ym) => new Date(ym + "-01").toLocaleDateString("en-US", { month: "short", year: "2-digit" });
 function getReportRange(periodType, cursor, customStart, customEnd) {
-  const fmt = (x) => x.toISOString().slice(0, 10);
+  const fmt = (x) => localDateStr(x);
   if (periodType === "custom") {
     return { start: customStart || fmt(cursor), end: customEnd || fmt(cursor), label: customStart && customEnd ? `${customStart} to ${customEnd}` : "Pick a custom range" };
   }
@@ -99,6 +100,17 @@ function getReportRange(periodType, cursor, customStart, customEnd) {
   return { start: fmt(start), end: fmt(end), label: cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" }) };
 }
 const uid = () => Math.random().toString(36).slice(2, 10);
+// IMPORTANT: never use Date.toISOString() for calendar/"today" logic — it converts to UTC,
+// which silently shifts the date backward for anyone in a timezone ahead of UTC (e.g. PH, UTC+8),
+// making "today" look like yesterday. These two helpers stay in local time instead.
+function localDateStr(d) {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+function localMonthStr(d) {
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
 function aggregateChannelStats(rows, granularity) {
   if (granularity === "month") {
     return rows.map(r => ({ label: monthLabel(r.month), month: r.month, growthPct: r.growthPct, engagement30: r.engagement30, engagement15: r.engagement15, followers: r.followers }));
@@ -161,6 +173,7 @@ export default function RiseSocMedTracker() {
   const [captions, setCaptions] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [extraServices, setExtraServices] = useState({ major: [...MAJOR_SERVICES], minor: [...MINOR_SERVICES] });
+  const [channelsVersion, setChannelsVersion] = useState(0);
   const [loaded, setLoaded] = useState(false);
 
   const [user, setUser] = useState(null);
@@ -177,13 +190,14 @@ export default function RiseSocMedTracker() {
     if (!user) return;
     (async () => {
       try {
-        const [rSnap, cSnap, tSnap, capSnap, tplSnap, svcSnap] = await Promise.all([
+        const [rSnap, cSnap, tSnap, capSnap, tplSnap, svcSnap, chSnap] = await Promise.all([
           getDoc(doc(db, "riseSocMedData", "requests")),
           getDoc(doc(db, "riseSocMedData", "channelStats")),
           getDoc(doc(db, "riseSocMedData", "targets")),
           getDoc(doc(db, "riseSocMedData", "captions")),
           getDoc(doc(db, "riseSocMedData", "templates")),
           getDoc(doc(db, "riseSocMedData", "extraServices")),
+          getDoc(doc(db, "riseSocMedData", "channelsList")),
         ]);
         if (rSnap.exists()) setRequests(rSnap.data().value || []);
         if (cSnap.exists()) setChannelStats(cSnap.data().value || {});
@@ -191,6 +205,11 @@ export default function RiseSocMedTracker() {
         if (capSnap.exists()) setCaptions(capSnap.data().value || []);
         if (tplSnap.exists()) setTemplates(tplSnap.data().value || []);
         if (svcSnap.exists()) setExtraServices(svcSnap.data().value || { major: [], minor: [] });
+        if (chSnap.exists() && chSnap.data().value?.length) {
+          CHANNELS.length = 0;
+          CHANNELS.push(...chSnap.data().value);
+          setChannelsVersion(v => v + 1);
+        }
       } finally { setLoaded(true); }
     })();
   }, [user]);
@@ -201,6 +220,17 @@ export default function RiseSocMedTracker() {
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "captions"), { value: captions }).catch(() => {}); }, [captions, loaded, user]);
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "templates"), { value: templates }).catch(() => {}); }, [templates, loaded, user]);
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "extraServices"), { value: extraServices }).catch(() => {}); }, [extraServices, loaded, user]);
+  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "channelsList"), { value: CHANNELS }).catch(() => {}); }, [channelsVersion, loaded, user]);
+
+  const addChannel = (ch) => {
+    CHANNELS.push(ch);
+    setChannelsVersion(v => v + 1);
+  };
+  const deleteChannel = (id) => {
+    const idx = CHANNELS.findIndex(c => c.id === id);
+    if (idx >= 0) CHANNELS.splice(idx, 1);
+    setChannelsVersion(v => v + 1);
+  };
 
   if (!authChecked) {
     return <div style={{ padding: 40, fontFamily: "'Inter',sans-serif", color: "#5B675F" }}>Loading…</div>;
@@ -219,7 +249,7 @@ export default function RiseSocMedTracker() {
     { id: "reports",   label: "Reports",   icon: BarChart3 },
   ];
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = localDateStr(new Date());
   const isAdmin = !!(user && ADMIN_EMAILS.includes(user.email));
   const allMajorServices = extraServices.major;
   const allMinorServices = extraServices.minor;
@@ -262,22 +292,25 @@ export default function RiseSocMedTracker() {
           </button>
         </div>
         {bellOpen && (
-          <div style={{ position: "absolute", top: 46, right: 14, width: 260, background: "#fff", color: "#0E2B27", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.25)", padding: 12, zIndex: 60, maxHeight: 320, overflowY: "auto" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Reminders</div>
-            {reminders.length === 0 ? (
-              <div style={{ fontSize: 11.5, color: "#9AA39B" }}>Nothing due or overdue.</div>
-            ) : reminders.map(r => {
-              const overdue = r.scheduledDate < todayStr;
-              return (
-                <div key={r.id} style={{ borderBottom: "1px solid #EEF0EC", padding: "7px 0" }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 600 }}>{r.title}</div>
-                  <div style={{ fontSize: 10.5, color: overdue ? "#C4544A" : "#E8A33D", fontWeight: 600 }}>
-                    {overdue ? "Overdue" : "Due today"} · {r.scheduledDate}
+          <>
+            <div onClick={() => setBellOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 90 }} />
+            <div style={{ position: "fixed", top: 60, left: 190, width: 280, background: "#fff", color: "#0E2B27", borderRadius: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.25)", padding: 12, zIndex: 100, maxHeight: 320, overflowY: "auto" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>Reminders</div>
+              {reminders.length === 0 ? (
+                <div style={{ fontSize: 11.5, color: "#9AA39B" }}>Nothing due or overdue.</div>
+              ) : reminders.map(r => {
+                const overdue = r.scheduledDate < todayStr;
+                return (
+                  <div key={r.id} style={{ borderBottom: "1px solid #EEF0EC", padding: "7px 0" }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 600 }}>{r.title}</div>
+                    <div style={{ fontSize: 10.5, color: overdue ? "#C4544A" : "#E8A33D", fontWeight: 600 }}>
+                      {overdue ? "Overdue" : "Due today"} · {r.scheduledDate}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          </>
         )}
         <div className="disp" style={{ fontSize: 22, fontWeight: 600, paddingLeft: 6, marginBottom: 2 }}>Rise</div>
         <div style={{ fontSize: 10.5, opacity: 0.55, paddingLeft: 6, marginBottom: 26, letterSpacing: 0.4 }}>SOCIAL MEDIA TRACKER</div>
@@ -303,7 +336,7 @@ export default function RiseSocMedTracker() {
       <div className="app-main" style={{ flex: 1, padding: "26px 32px", overflowY: "auto", maxHeight: 620 }}>
         {tab === "dashboard" && <Dashboard requests={requests} channelStats={channelStats} targets={targets} allServicesList={allServicesList} />}
         {tab === "requests"  && <Requests requests={requests} setRequests={setRequests} captions={captions} user={user} majorServices={allMajorServices} minorServices={allMinorServices} />}
-        {tab === "channels"  && <Channels channelStats={channelStats} setChannelStats={setChannelStats} />}
+        {tab === "channels"  && <Channels channelStats={channelStats} setChannelStats={setChannelStats} addChannel={addChannel} deleteChannel={deleteChannel} channelsVersion={channelsVersion} isAdmin={isAdmin} />}
         {tab === "targets"   && <Targets targets={targets} setTargets={setTargets} requests={requests} majorServices={allMajorServices} />}
         {tab === "captions"  && <Captions captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates} majorServices={allMajorServices} minorServices={allMinorServices} />}
         {tab === "scheduler" && <Scheduler requests={requests} setRequests={setRequests} captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates}
@@ -356,7 +389,7 @@ function Login() {
 /* ---------------------------------- DASHBOARD ---------------------------------- */
 
 function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERVICES }) {
-  const currentMonth = new Date().toISOString().slice(0, 7);
+  const currentMonth = localMonthStr(new Date());
   const monthRequests = useMemo(() => requests.filter(r => r.dateLogged.slice(0, 7) === currentMonth), [requests, currentMonth]);
 
   const byService = useMemo(() => {
@@ -531,7 +564,7 @@ function RequestModal({ onClose, onSave, user, majorServices = MAJOR_SERVICES, m
     onSave({
       id: uid(), title, description, requesterNotes, dept, creativeType, priority, dueDate, scheduledDate,
       purposes, channel, services, imageUrl, requestedBy: user?.email || "", status: "Pending",
-      dateLogged: new Date().toISOString().slice(0, 10),
+      dateLogged: localDateStr(new Date()),
     });
     setSubmitting(false);
   };
@@ -620,18 +653,19 @@ function RequestModal({ onClose, onSave, user, majorServices = MAJOR_SERVICES, m
 
 /* ---------------------------------- CHANNELS ---------------------------------- */
 
-function Channels({ channelStats, setChannelStats }) {
-  const [selected, setSelected] = useState(CHANNELS[0].id);
+function Channels({ channelStats, setChannelStats, addChannel, deleteChannel, channelsVersion, isAdmin }) {
+  const [selected, setSelected] = useState(CHANNELS[0]?.id);
   const [open, setOpen] = useState(false);
   const [editingRow, setEditingRow] = useState(null);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
   const [growthView, setGrowthView] = useState("month");
   const [confirmDeleteMonth, setConfirmDeleteMonth] = useState(null);
-  const channel = CHANNELS.find(c => c.id === selected);
-  const rows = (channelStats[selected] || []).sort((a, b) => a.month.localeCompare(b.month));
+  const channel = CHANNELS.find(c => c.id === selected) || CHANNELS[0];
+  const rows = channel ? (channelStats[channel.id] || []).sort((a, b) => a.month.localeCompare(b.month)) : [];
 
   const deleteEntry = (month) => {
-    setChannelStats(cs => ({ ...cs, [selected]: (cs[selected] || []).filter(r => r.month !== month) }));
+    setChannelStats(cs => ({ ...cs, [channel.id]: (cs[channel.id] || []).filter(r => r.month !== month) }));
     setConfirmDeleteMonth(null);
   };
 
@@ -644,17 +678,42 @@ function Channels({ channelStats, setChannelStats }) {
     });
   };
 
-  const addEntry = (entry) => { saveEntry(selected, entry); setOpen(false); setEditingRow(null); };
+  const addEntry = (entry) => { saveEntry(channel.id, entry); setOpen(false); setEditingRow(null); };
+
+  const handleDeleteChannel = (id) => {
+    deleteChannel(id);
+    setChannelStats(cs => { const next = { ...cs }; delete next[id]; return next; });
+    if (selected === id) setSelected(CHANNELS.find(c => c.id !== id)?.id);
+  };
+
+  if (!channel) {
+    return (
+      <div>
+        <Header title="Channels" sub="Growth and engagement, logged manually per month" action={
+          isAdmin && <button onClick={() => setManageOpen(true)} style={primaryBtn}><Plus size={15} /> Add Channel</button>
+        } />
+        <Card><Empty text="No channels yet. An admin needs to add one to get started." /></Card>
+        {manageOpen && <ChannelManagerModal onClose={() => setManageOpen(false)} onAdd={addChannel} onDelete={handleDeleteChannel} />}
+      </div>
+    );
+  }
 
   const last = rows[rows.length - 1];
   const growthRating = last ? rate(channel.platform, "growth", last.growthPct) : null;
   const engRating = last ? rate(channel.platform, "engagement", last.engagement30) : null;
   const chartData = aggregateChannelStats(rows, growthView);
 
+  const targetEngagement = last?.targetEngagementPct;
+  const engPace = (last && targetEngagement != null && targetEngagement !== "")
+    ? (last.engagement15 >= targetEngagement ? "On Track" : last.engagement15 >= targetEngagement * 0.7 ? "Near Target" : "Below Target")
+    : null;
+  const engPaceColor = engPace === "On Track" ? "#146356" : engPace === "Near Target" ? "#E8A33D" : "#C4544A";
+
   return (
     <div>
       <Header title="Channels" sub="Growth and engagement, logged manually per month" action={
         <div style={{ display: "flex", gap: 8 }}>
+          {isAdmin && <button onClick={() => setManageOpen(true)} style={{ ...primaryBtn, background: "#fff", color: "#146356", border: "1px solid #146356" }}><ShieldCheck size={15} /> Manage Channels</button>}
           <button onClick={() => setBulkOpen(true)} style={{ ...primaryBtn, background: "#fff", color: "#146356", border: "1px solid #146356" }}><Grid2X2 size={15} /> Bulk Monthly Entry</button>
           <button onClick={() => { setEditingRow(null); setOpen(true); }} style={primaryBtn}><Plus size={15} /> Log Monthly Stats</button>
         </div>
@@ -674,11 +733,28 @@ function Channels({ channelStats, setChannelStats }) {
 
       {last ? (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 18 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 12 }}>
             <StatCard label="Current Followers" value={Number(last.followers).toLocaleString()} />
             <StatCard label="Growth Rate" value={`${last.growthPct.toFixed(2)}%`} badge={growthRating} badgeColor={RATING_COLOR[growthRating]} />
             <StatCard label="30-Day Engagement" value={`${last.engagement30}%`} badge={engRating} badgeColor={RATING_COLOR[engRating]} />
-            <StatCard label="Next Month Target" value={Number(Math.round(last.followers * (1 + (last.targetGrowthPct ?? 1) / 100))).toLocaleString()} sub={`at ${(last.targetGrowthPct ?? 1)}% target`} />
+            <StatCard label="Next Month Follower Target" value={Number(Math.round(last.followers * (1 + (last.targetGrowthPct ?? 1) / 100))).toLocaleString()} sub={`at ${(last.targetGrowthPct ?? 1)}% growth target`} />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 18 }}>
+            <StatCard label="Monthly Engagement Target" value={targetEngagement != null && targetEngagement !== "" ? `${targetEngagement}%` : "Not set"} sub="Set per month when logging stats" />
+            {engPace ? (
+              <div style={{ background: "#fff", border: `1px solid ${engPaceColor}55`, borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <div style={{ fontSize: 11, color: "#5B675F", marginBottom: 4, fontWeight: 600 }}>15-Day Pace vs. Monthly Target</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span className="mono" style={{ fontSize: 16, fontWeight: 700 }}>{last.engagement15}%</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: engPaceColor, background: engPaceColor + "1A", padding: "2px 8px", borderRadius: 10 }}>{engPace}</span>
+                </div>
+              </div>
+            ) : (
+              <div style={{ background: "#F5F6F1", borderRadius: 10, padding: "12px 14px", display: "flex", alignItems: "center", fontSize: 11.5, color: "#9AA39B" }}>
+                Set a monthly engagement target to see 15-day pace tracking.
+              </div>
+            )}
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 10 }}>
@@ -686,6 +762,18 @@ function Channels({ channelStats, setChannelStats }) {
               <button key={g} onClick={() => setGrowthView(g)} style={pillBtn(growthView === g)}>{g[0].toUpperCase() + g.slice(1)}ly</button>
             ))}
           </div>
+
+          <Card title={`${channel.name} — Follower Count`} style={{ marginBottom: 16 }}>
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" />
+                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5B675F" }} />
+                <YAxis tick={{ fontSize: 11, fill: "#5B675F" }} domain={["auto", "auto"]} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} formatter={v => Number(v).toLocaleString()} />
+                <Line type="monotone" dataKey="followers" name="Followers" stroke={channel.color} strokeWidth={2.5} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </Card>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
             <Card title={`${channel.name} — Average Growth Rate`}>
@@ -715,7 +803,7 @@ function Channels({ channelStats, setChannelStats }) {
           <Card title="Monthly Log">
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
               <thead><tr style={{ textAlign: "left", color: "#5B675F", borderBottom: "1px solid #E3E6E0" }}>
-                <th style={th}>Month</th><th style={th}>Followers</th><th style={th}>Growth %</th><th style={th}>Rating</th><th style={th}>30d Engagement</th><th style={th}>Rating</th><th style={th}></th>
+                <th style={th}>Month</th><th style={th}>Followers</th><th style={th}>Growth %</th><th style={th}>Rating</th><th style={th}>30d Engagement</th><th style={th}>Rating</th><th style={th}>Eng. Target</th><th style={th}></th>
               </tr></thead>
               <tbody>
                 {[...rows].reverse().map(r => (
@@ -726,6 +814,7 @@ function Channels({ channelStats, setChannelStats }) {
                     <td style={td}><RatingBadge label={rate(channel.platform, "growth", r.growthPct)} /></td>
                     <td style={td} className="mono">{r.engagement30}%</td>
                     <td style={td}><RatingBadge label={rate(channel.platform, "engagement", r.engagement30)} /></td>
+                    <td style={td} className="mono">{r.targetEngagementPct != null && r.targetEngagementPct !== "" ? `${r.targetEngagementPct}%` : "—"}</td>
                     <td style={td}>
                       <div style={{ display: "flex", gap: 6 }}>
                         <button onClick={() => { setEditingRow(r); setOpen(true); }} style={{ border: "none", background: "transparent", color: "#146356" }}><Pencil size={13} /></button>
@@ -744,18 +833,20 @@ function Channels({ channelStats, setChannelStats }) {
         </>
       ) : <Card><Empty text={`No stats logged for ${channel.name} yet.`} /></Card>}
 
-      {open && <ChannelEntryModal channel={channel} editing={editingRow} onClose={() => { setOpen(false); setEditingRow(null); }} onSave={addEntry} lastTarget={last?.targetGrowthPct ?? 1} />}
+      {open && <ChannelEntryModal channel={channel} editing={editingRow} onClose={() => { setOpen(false); setEditingRow(null); }} onSave={addEntry} lastTarget={last?.targetGrowthPct ?? 1} lastEngTarget={last?.targetEngagementPct ?? ""} />}
       {bulkOpen && <BulkChannelEntryModal channelStats={channelStats} onSave={saveEntry} onClose={() => setBulkOpen(false)} />}
+      {manageOpen && <ChannelManagerModal onClose={() => setManageOpen(false)} onAdd={addChannel} onDelete={handleDeleteChannel} />}
     </div>
   );
 }
 
-function ChannelEntryModal({ channel, onClose, onSave, lastTarget, editing }) {
-  const [month, setMonth] = useState(editing?.month || new Date().toISOString().slice(0, 7));
+function ChannelEntryModal({ channel, onClose, onSave, lastTarget, lastEngTarget, editing }) {
+  const [month, setMonth] = useState(editing?.month || localMonthStr(new Date()));
   const [followers, setFollowers] = useState(editing?.followers ?? "");
   const [eng15, setEng15] = useState(editing?.engagement15 ?? "");
   const [eng30, setEng30] = useState(editing?.engagement30 ?? "");
   const [targetGrowthPct, setTargetGrowthPct] = useState(editing?.targetGrowthPct ?? lastTarget);
+  const [targetEngagementPct, setTargetEngagementPct] = useState(editing?.targetEngagementPct ?? lastEngTarget);
 
   return (
     <div style={overlay}>
@@ -772,11 +863,13 @@ function ChannelEntryModal({ channel, onClose, onSave, lastTarget, editing }) {
           <div><label style={label}>15-day engagement %</label><input type="number" step="0.1" value={eng15} onChange={e => setEng15(e.target.value)} style={{ ...inputStyle, width: "100%" }} /></div>
           <div><label style={label}>30-day engagement %</label><input type="number" step="0.1" value={eng30} onChange={e => setEng30(e.target.value)} style={{ ...inputStyle, width: "100%" }} /></div>
         </div>
-        <label style={label}>Target growth % (admin-editable, applies to next month)</label>
-        <input type="number" step="0.1" value={targetGrowthPct} onChange={e => setTargetGrowthPct(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 20 }} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+          <div><label style={label}>Growth target % (next month)</label><input type="number" step="0.1" value={targetGrowthPct} onChange={e => setTargetGrowthPct(e.target.value)} style={{ ...inputStyle, width: "100%" }} /></div>
+          <div><label style={label}>Engagement target % (this month)</label><input type="number" step="0.1" value={targetEngagementPct} onChange={e => setTargetEngagementPct(e.target.value)} style={{ ...inputStyle, width: "100%" }} /></div>
+        </div>
         <button
           disabled={!followers}
-          onClick={() => onSave({ month, followers: Number(followers), engagement15: Number(eng15 || 0), engagement30: Number(eng30 || 0), targetGrowthPct: Number(targetGrowthPct) })}
+          onClick={() => onSave({ month, followers: Number(followers), engagement15: Number(eng15 || 0), engagement30: Number(eng30 || 0), targetGrowthPct: Number(targetGrowthPct), targetEngagementPct: targetEngagementPct === "" ? "" : Number(targetEngagementPct) })}
           style={{ ...primaryBtn, width: "100%", justifyContent: "center", opacity: !followers ? 0.5 : 1 }}
         >{editing ? "Save Changes" : "Save Entry"}</button>
       </div>
@@ -785,12 +878,12 @@ function ChannelEntryModal({ channel, onClose, onSave, lastTarget, editing }) {
 }
 
 function BulkChannelEntryModal({ channelStats, onSave, onClose }) {
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(localMonthStr(new Date()));
   const [rows, setRows] = useState(() => {
     const init = {};
     CHANNELS.forEach(c => {
       const existing = (channelStats[c.id] || []).find(r => r.month === month);
-      init[c.id] = { followers: existing?.followers ?? "", engagement15: existing?.engagement15 ?? "", engagement30: existing?.engagement30 ?? "", targetGrowthPct: existing?.targetGrowthPct ?? 1 };
+      init[c.id] = { followers: existing?.followers ?? "", engagement15: existing?.engagement15 ?? "", engagement30: existing?.engagement30 ?? "", targetGrowthPct: existing?.targetGrowthPct ?? 1, targetEngagementPct: existing?.targetEngagementPct ?? "" };
     });
     return init;
   });
@@ -800,7 +893,7 @@ function BulkChannelEntryModal({ channelStats, onSave, onClose }) {
     const init = {};
     CHANNELS.forEach(c => {
       const existing = (channelStats[c.id] || []).find(r => r.month === m);
-      init[c.id] = { followers: existing?.followers ?? "", engagement15: existing?.engagement15 ?? "", engagement30: existing?.engagement30 ?? "", targetGrowthPct: existing?.targetGrowthPct ?? 1 };
+      init[c.id] = { followers: existing?.followers ?? "", engagement15: existing?.engagement15 ?? "", engagement30: existing?.engagement30 ?? "", targetGrowthPct: existing?.targetGrowthPct ?? 1, targetEngagementPct: existing?.targetEngagementPct ?? "" };
     });
     setRows(init);
   };
@@ -811,7 +904,7 @@ function BulkChannelEntryModal({ channelStats, onSave, onClose }) {
     CHANNELS.forEach(c => {
       const r = rows[c.id];
       if (r.followers !== "" && r.followers !== null) {
-        onSave(c.id, { month, followers: Number(r.followers), engagement15: Number(r.engagement15 || 0), engagement30: Number(r.engagement30 || 0), targetGrowthPct: Number(r.targetGrowthPct || 1) });
+        onSave(c.id, { month, followers: Number(r.followers), engagement15: Number(r.engagement15 || 0), engagement30: Number(r.engagement30 || 0), targetGrowthPct: Number(r.targetGrowthPct || 1), targetEngagementPct: r.targetEngagementPct === "" ? "" : Number(r.targetEngagementPct) });
       }
     });
     onClose();
@@ -819,17 +912,17 @@ function BulkChannelEntryModal({ channelStats, onSave, onClose }) {
 
   return (
     <div style={overlay}>
-      <div style={{ ...modal, width: 640 }}>
+      <div style={{ ...modal, width: 700 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
           <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>Bulk Monthly Entry</div>
           <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
         </div>
         <label style={label}>Month</label>
         <input type="month" value={month} onChange={e => loadMonth(e.target.value)} style={{ ...inputStyle, width: 200, marginBottom: 14 }} />
-        <div style={{ maxHeight: 360, overflowY: "auto", border: "1px solid #E3E6E0", borderRadius: 8 }}>
+        <div style={{ maxHeight: 360, overflowY: "auto", overflowX: "auto", border: "1px solid #E3E6E0", borderRadius: 8 }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead><tr style={{ textAlign: "left", color: "#5B675F", background: "#F5F6F1", position: "sticky", top: 0 }}>
-              <th style={{ padding: "7px 8px" }}>Channel</th><th style={{ padding: "7px 8px" }}>Followers</th><th style={{ padding: "7px 8px" }}>15d Eng %</th><th style={{ padding: "7px 8px" }}>30d Eng %</th><th style={{ padding: "7px 8px" }}>Target %</th>
+              <th style={{ padding: "7px 8px" }}>Channel</th><th style={{ padding: "7px 8px" }}>Followers</th><th style={{ padding: "7px 8px" }}>15d Eng %</th><th style={{ padding: "7px 8px" }}>30d Eng %</th><th style={{ padding: "7px 8px" }}>Growth Target %</th><th style={{ padding: "7px 8px" }}>Eng. Target %</th>
             </tr></thead>
             <tbody>
               {CHANNELS.map(c => (
@@ -839,6 +932,7 @@ function BulkChannelEntryModal({ channelStats, onSave, onClose }) {
                   <td style={{ padding: "6px 8px" }}><input type="number" step="0.1" value={rows[c.id]?.engagement15 ?? ""} onChange={e => update(c.id, "engagement15", e.target.value)} style={{ ...inputStyle, width: 70, fontSize: 12, padding: "5px 7px" }} /></td>
                   <td style={{ padding: "6px 8px" }}><input type="number" step="0.1" value={rows[c.id]?.engagement30 ?? ""} onChange={e => update(c.id, "engagement30", e.target.value)} style={{ ...inputStyle, width: 70, fontSize: 12, padding: "5px 7px" }} /></td>
                   <td style={{ padding: "6px 8px" }}><input type="number" step="0.1" value={rows[c.id]?.targetGrowthPct ?? ""} onChange={e => update(c.id, "targetGrowthPct", e.target.value)} style={{ ...inputStyle, width: 60, fontSize: 12, padding: "5px 7px" }} /></td>
+                  <td style={{ padding: "6px 8px" }}><input type="number" step="0.1" value={rows[c.id]?.targetEngagementPct ?? ""} onChange={e => update(c.id, "targetEngagementPct", e.target.value)} style={{ ...inputStyle, width: 60, fontSize: 12, padding: "5px 7px" }} /></td>
                 </tr>
               ))}
             </tbody>
@@ -851,7 +945,58 @@ function BulkChannelEntryModal({ channelStats, onSave, onClose }) {
   );
 }
 
+function ChannelManagerModal({ onClose, onAdd, onDelete }) {
+  const [name, setName] = useState("");
+  const [platform, setPlatform] = useState("Facebook");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  const submit = () => {
+    if (!name.trim()) return;
+    const usedColors = CHANNELS.map(c => c.color);
+    const color = EXTRA_CHANNEL_COLOR_POOL.find(c => !usedColors.includes(c)) || EXTRA_CHANNEL_COLOR_POOL[CHANNELS.length % EXTRA_CHANNEL_COLOR_POOL.length];
+    onAdd({ id: uid(), name: name.trim(), platform, color });
+    setName("");
+  };
+
+  return (
+    <div style={overlay}>
+      <div style={{ ...modal, width: 460 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>Manage Channels <span style={{ fontSize: 11, fontWeight: 600, color: "#E8A33D", background: "#E8A33D1A", padding: "2px 8px", borderRadius: 10, marginLeft: 6 }}>Admin</span></div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
+        </div>
+
+        <div style={{ maxHeight: 240, overflowY: "auto", border: "1px solid #E3E6E0", borderRadius: 8, marginBottom: 14 }}>
+          {CHANNELS.map(c => (
+            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderBottom: "1px solid #EEF0EC" }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: c.color, flexShrink: 0 }} />
+              <div style={{ flex: 1, fontSize: 12.5 }}>{c.name} <span style={{ color: "#9AA39B", fontSize: 11 }}>· {c.platform}</span></div>
+              {confirmDeleteId === c.id ? (
+                <button onClick={() => { onDelete(c.id); setConfirmDeleteId(null); }} style={{ border: "none", background: "transparent", color: "#C4544A", fontSize: 10.5, fontWeight: 700 }}>Confirm?</button>
+              ) : (
+                <button onClick={() => setConfirmDeleteId(c.id)} style={{ border: "none", background: "transparent", color: "#C4544A" }}><Trash2 size={13} /></button>
+              )}
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 10.5, color: "#9AA39B", marginBottom: 14 }}>Deleting a channel also removes its logged monthly stats. Requests/captions that reference it keep the tag as history.</div>
+
+        <label style={label}>Add new channel</label>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. IPASS LinkedIn" style={{ ...inputStyle, width: "100%", marginBottom: 10 }} />
+        <div style={{ display: "flex", gap: 6 }}>
+          <select value={platform} onChange={e => setPlatform(e.target.value)} style={{ ...inputStyle, flex: 1 }}>
+            {["Facebook", "Instagram", "TikTok", "YouTube"].map(p => <option key={p}>{p}</option>)}
+          </select>
+          <button disabled={!name.trim()} onClick={submit} style={{ ...primaryBtn, opacity: !name.trim() ? 0.5 : 1 }}><Plus size={14} /></button>
+        </div>
+        <div style={{ fontSize: 10, color: "#9AA39B", marginTop: 6 }}>Platform determines which benchmark rating scale applies (Facebook/Instagram/TikTok/YouTube).</div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------------------------------- TARGETS ---------------------------------- */
+
 
 function Targets({ targets, setTargets, requests, majorServices = MAJOR_SERVICES }) {
   const [open, setOpen] = useState(false);
@@ -1193,7 +1338,7 @@ function CaptionModal({ onClose, onSave, templates, majorServices = MAJOR_SERVIC
           onClick={() => onSave({
             id: uid(), brief, services, creativeType, channel, campaign, textEn, textFil,
             hashtags: hashtagsInput.split(",").map(h => h.trim()).filter(Boolean),
-            status: "Draft", dateCreated: new Date().toISOString().slice(0, 10),
+            status: "Draft", dateCreated: localDateStr(new Date()),
           })}
           style={{ ...primaryBtn, width: "100%", justifyContent: "center", opacity: (!brief || services.length === 0 || !textEn) ? 0.5 : 1 }}
         >Save Caption</button>
@@ -1215,7 +1360,7 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
   const [addServiceOpen, setAddServiceOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("All");
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = localDateStr(new Date());
   const isPast = (dateStr) => dateStr < todayStr;
 
   const scheduled = useMemo(() => requests.filter(r => r.scheduledDate), [requests]);
@@ -1266,7 +1411,7 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
     return Array.from({ length: 7 }, (_, i) => { const dd = new Date(d); dd.setDate(d.getDate() + i); return dd; });
   }, [cursor]);
 
-  const fmt = (d) => d.toISOString().slice(0, 10);
+  const fmt = (d) => localDateStr(d);
   const updatePost = (id, patch) => setRequests(rs => rs.map(r => r.id === id ? { ...r, ...patch } : r));
   const removePost = (id) => { setRequests(rs => rs.filter(r => r.id !== id)); setEditingPost(null); };
 
@@ -1314,7 +1459,7 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
             )}
           </div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 10 }}>
           {POST_STATUSES.map(s => {
             const Icon = POST_STATUS_ICON[s];
             const active = statusFilter === s;
@@ -1674,7 +1819,7 @@ function ServiceManagerModal({ majorServices, minorServices, onClose, onAdd, onR
 /* ---------------------------------- SCHEDULER POST MODAL (with caption container) ---------------------------------- */
 
 function SchedulerPostModal({ onClose, onSave, onRemove, initialDate, editingPost, captions, setCaptions, templates, setTemplates, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES }) {
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = localDateStr(new Date());
   const [title, setTitle] = useState(editingPost?.title || "");
   const [serviceType, setServiceType] = useState("major");
   const [services, setServices] = useState(editingPost?.services || []);
@@ -1699,7 +1844,7 @@ function SchedulerPostModal({ onClose, onSave, onRemove, initialDate, editingPos
     onSave({
       id: editingPost?.id || uid(), title, services, creativeType, channel, scheduledDate, linkedCaptionId, creativeRef, postStatus,
       status: editingPost?.status || "Pending",
-      dateLogged: editingPost?.dateLogged || new Date().toISOString().slice(0, 10),
+      dateLogged: editingPost?.dateLogged || localDateStr(new Date()),
     });
   };
 
@@ -1816,7 +1961,7 @@ function CaptionContainer({ captions, setCaptions, templates, setTemplates, link
       const newCap = {
         id: uid(), brief: defaults.services[0] ? `${defaults.services[0]} — ${defaults.creativeType}` : defaults.creativeType,
         services: defaults.services, creativeType: defaults.creativeType, channel: defaults.channel, campaign: "",
-        textEn: draftEn, textFil: draftFil, hashtags, status: "Draft", dateCreated: new Date().toISOString().slice(0, 10),
+        textEn: draftEn, textFil: draftFil, hashtags, status: "Draft", dateCreated: localDateStr(new Date()),
       };
       setCaptions(cs => [...cs, newCap]);
       setLinkedCaptionId(newCap.id);
@@ -2095,8 +2240,32 @@ function Reports({ requests, channelStats, targets, captions, majorServices, min
         <StatCard label="Avg. Engagement (Simple Avg.)" value={avgEngagement === null ? "—" : `${avgEngagement.toFixed(2)}%`} />
       </div>
 
+      <Card title="Channel Performance" style={{ marginBottom: 16 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+          <thead><tr style={{ textAlign: "left", color: "#5B675F", borderBottom: "1px solid #E3E6E0" }}>
+            <th style={th}>Channel</th><th style={th}>Followers</th><th style={th}>Growth</th><th style={th}>Rating</th><th style={th}>Engagement</th><th style={th}>Rating</th>
+          </tr></thead>
+          <tbody>
+            {channelPerf.map(({ channel, latest, growthRating, engRating }) => (
+              <tr key={channel.id} style={{ borderBottom: "1px solid #EEF0EC" }}>
+                <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: channel.color }} />{channel.name}</div></td>
+                {latest ? (
+                  <>
+                    <td style={td} className="mono">{Number(latest.followers).toLocaleString()}</td>
+                    <td style={td} className="mono">{latest.growthPct.toFixed(2)}%</td>
+                    <td style={td}><RatingBadge label={growthRating} /></td>
+                    <td style={td} className="mono">{latest.engagement30}%</td>
+                    <td style={td}><RatingBadge label={engRating} /></td>
+                  </>
+                ) : <td colSpan={5} style={{ ...td, color: "#9AA39B" }}>No stats logged for this period</td>}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+
       <Card title="Post Status Summary" style={{ marginBottom: 16 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(6,1fr)", gap: 10 }}>
           {POST_STATUSES.map(s => {
             const Icon = POST_STATUS_ICON[s];
             return (
@@ -2140,29 +2309,6 @@ function Reports({ requests, channelStats, targets, captions, majorServices, min
         <CoverageGrid covered={coverage.covered} flagged={coverage.flagged} total={coverage.total} />
       </Card>
 
-      <Card title="Channel Performance" style={{ marginBottom: 16 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
-          <thead><tr style={{ textAlign: "left", color: "#5B675F", borderBottom: "1px solid #E3E6E0" }}>
-            <th style={th}>Channel</th><th style={th}>Followers</th><th style={th}>Growth</th><th style={th}>Rating</th><th style={th}>Engagement</th><th style={th}>Rating</th>
-          </tr></thead>
-          <tbody>
-            {channelPerf.map(({ channel, latest, growthRating, engRating }) => (
-              <tr key={channel.id} style={{ borderBottom: "1px solid #EEF0EC" }}>
-                <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: channel.color }} />{channel.name}</div></td>
-                {latest ? (
-                  <>
-                    <td style={td} className="mono">{Number(latest.followers).toLocaleString()}</td>
-                    <td style={td} className="mono">{latest.growthPct.toFixed(2)}%</td>
-                    <td style={td}><RatingBadge label={growthRating} /></td>
-                    <td style={td} className="mono">{latest.engagement30}%</td>
-                    <td style={td}><RatingBadge label={engRating} /></td>
-                  </>
-                ) : <td colSpan={5} style={{ ...td, color: "#9AA39B" }}>No stats logged for this period</td>}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
 
       <Card title="Target Achievement">
         {targetAchievement.length === 0 ? <Empty text="No targets set yet." /> : (
