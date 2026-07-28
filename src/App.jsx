@@ -1522,6 +1522,7 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
 
 function PostDetailModal({ post, captions, extraServices, onClose, onStatusChange, onProductionStatusChange, onReschedule, onRemove }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
+  const [captionCopied, setCaptionCopied] = useState(false);
   const ch = CHANNELS.find(c => c.id === post.channel);
   const svc = primaryService(post.services, extraServices.major);
   const linkedCaption = captions.find(c => c.id === post.linkedCaptionId);
@@ -1529,6 +1530,12 @@ function PostDetailModal({ post, captions, extraServices, onClose, onStatusChang
   const hasCreative = !!post.creativeRef;
   const readyLabel = hasCaption && hasCreative ? "Ready to post" : !hasCaption && !hasCreative ? "Needs caption & creative" : !hasCaption ? "Needs caption" : "Needs creative reference";
   const readyColor = hasCaption && hasCreative ? "#146356" : "#C4544A";
+
+  const copyCaption = () => {
+    if (!linkedCaption) return;
+    const hashtagLine = linkedCaption.hashtags?.length ? `\n\n${linkedCaption.hashtags.map(h => `#${h.replace(/^#/, "")}`).join(" ")}` : "";
+    navigator.clipboard?.writeText(linkedCaption.textEn + hashtagLine).then(() => { setCaptionCopied(true); setTimeout(() => setCaptionCopied(false), 1500); });
+  };
 
   return (
     <div style={overlay} onClick={onClose}>
@@ -1561,12 +1568,25 @@ function PostDetailModal({ post, captions, extraServices, onClose, onStatusChang
           </div>
         </div>
 
-        <div style={{ fontSize: 11, fontWeight: 700, color: "#5B675F", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.3 }}>Caption</div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#5B675F", textTransform: "uppercase", letterSpacing: 0.3 }}>Caption</div>
+          {linkedCaption && (
+            <button onClick={copyCaption} style={{ display: "flex", alignItems: "center", gap: 5, border: "1px solid #D8DDD5", background: captionCopied ? "#146356" : "#fff", color: captionCopied ? "#fff" : "#0E2B27", borderRadius: 7, padding: "4px 10px", fontSize: 11, fontWeight: 600 }}>
+              <Copy size={12} /> {captionCopied ? "Copied" : "Copy caption + hashtags"}
+            </button>
+          )}
+        </div>
         {linkedCaption ? (
-          <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", background: "#F5F6F1", borderRadius: 8, padding: 12, marginBottom: 16 }}>{linkedCaption.textEn}</div>
+          <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap", background: "#F5F6F1", borderRadius: 8, padding: 12, marginBottom: 6 }}>{linkedCaption.textEn}</div>
         ) : (
           <div style={{ fontSize: 12, color: "#9AA39B", marginBottom: 16 }}>No caption linked yet — reschedule/edit this post to attach one.</div>
         )}
+        {linkedCaption?.hashtags?.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 16 }}>
+            {linkedCaption.hashtags.map(h => <span key={h} style={{ ...tagStyle, color: "#146356" }}>#{h.replace(/^#/, "")}</span>)}
+          </div>
+        )}
+        {linkedCaption && !linkedCaption.hashtags?.length && <div style={{ marginBottom: 16 }} />}
 
         <div style={{ fontSize: 11, fontWeight: 700, color: "#5B675F", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.3 }}>Creative reference</div>
         {post.creativeRef ? (
