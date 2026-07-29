@@ -100,6 +100,18 @@ function getReportRange(periodType, cursor, customStart, customEnd) {
   return { start: fmt(start), end: fmt(end), label: cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" }) };
 }
 const uid = () => Math.random().toString(36).slice(2, 10);
+function syncRequestToV1(req, requesterEmail) {
+  fetch("/api/sync-to-v1", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: req.title, description: req.description || "", requesterNotes: req.requesterNotes || "",
+      dept: req.dept || "Other", priority: req.priority || "Normal", dueDate: req.dueDate || null,
+      purposes: req.purposes || [], creativeType: req.creativeType, requesterEmail: requesterEmail || req.requestedBy || "",
+      creativeRef: req.creativeRef || req.imageUrl || "",
+    }),
+  }).catch(() => { /* sync is best-effort — a failed push doesn't block logging the request locally */ });
+}
 // IMPORTANT: never use Date.toISOString() for calendar/"today" logic — it converts to UTC,
 // which silently shifts the date backward for anyone in a timezone ahead of UTC (e.g. PH, UTC+8),
 // making "today" look like yesterday. These two helpers stay in local time instead.
@@ -365,7 +377,7 @@ export default function RiseSocMedTracker() {
         {tab === "targets"   && <Targets targets={targets} setTargets={setTargets} requests={requests} majorServices={allMajorServices} />}
         {tab === "captions"  && <Captions captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates} majorServices={allMajorServices} minorServices={allMinorServices} />}
         {tab === "scheduler" && <Scheduler requests={requests} setRequests={setRequests} captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates}
-          targets={targets} setTargets={setTargets}
+          targets={targets} setTargets={setTargets} user={user}
           majorServices={allMajorServices} minorServices={allMinorServices} extraServices={extraServices} setExtraServices={setExtraServices} isAdmin={isAdmin} />}
         {tab === "reports" && <Reports requests={requests} channelStats={channelStats} targets={targets} captions={captions}
           majorServices={allMajorServices} minorServices={allMinorServices} allServicesList={allServicesList} extraServices={extraServices} />}
@@ -585,7 +597,7 @@ function Requests({ requests, setRequests, captions, user, majorServices = MAJOR
         )}
       </Card>
 
-      {open && <RequestModal user={user} majorServices={majorServices} minorServices={minorServices} onClose={() => setOpen(false)} onSave={(req) => { setRequests(rs => [...rs, req]); setOpen(false); }} />}
+      {open && <RequestModal user={user} majorServices={majorServices} minorServices={minorServices} onClose={() => setOpen(false)} onSave={(req) => { setRequests(rs => [...rs, req]); syncRequestToV1(req, user?.email); setOpen(false); }} />}
     </div>
   );
 }
@@ -1423,7 +1435,7 @@ function CaptionModal({ onClose, onSave, templates, majorServices = MAJOR_SERVIC
 
 /* ---------------------------------- SCHEDULER ---------------------------------- */
 
-function Scheduler({ requests, setRequests, captions, setCaptions, templates, setTemplates, targets, setTargets, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES, extraServices = { major: [], minor: [] }, setExtraServices, isAdmin }) {
+function Scheduler({ requests, setRequests, captions, setCaptions, templates, setTemplates, targets, setTargets, user, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES, extraServices = { major: [], minor: [] }, setExtraServices, isAdmin }) {
   const [view, setView] = useState("month");
   const [cursor, setCursor] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(null);
@@ -1698,7 +1710,7 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
           templates={templates} setTemplates={setTemplates}
           majorServices={majorServices} minorServices={minorServices}
           onClose={() => setNewModalDate(null)}
-          onSave={(req) => { setRequests(rs => [...rs, req]); setNewModalDate(null); }}
+          onSave={(req) => { setRequests(rs => [...rs, req]); syncRequestToV1(req, user?.email); setNewModalDate(null); }}
         />
       )}
 
