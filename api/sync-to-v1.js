@@ -85,7 +85,7 @@ export default async function handler(req, res) {
       purposes,
       referenceLink: creativeRef || "",
       hasImage: !!creativeRef,
-      status: "Pending",
+      status: "New",
       units: null,
       briefCompliance: null,
       satisfactionScore: null,
