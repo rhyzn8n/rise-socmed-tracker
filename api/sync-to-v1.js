@@ -1,11 +1,21 @@
 import admin from "firebase-admin";
 
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(JSON.parse(process.env.V1_FIREBASE_SERVICE_ACCOUNT)),
-  });
+let db;
+function getDb() {
+  if (!admin.apps.length) {
+    const raw = process.env.V1_FIREBASE_SERVICE_ACCOUNT;
+    if (!raw) throw new Error("V1_FIREBASE_SERVICE_ACCOUNT is not set");
+    let creds;
+    try {
+      creds = JSON.parse(raw);
+    } catch (e) {
+      throw new Error("V1_FIREBASE_SERVICE_ACCOUNT is not valid JSON — check for extra quotes or line breaks introduced when pasting into Vercel");
+    }
+    admin.initializeApp({ credential: admin.credential.cert(creds) });
+  }
+  if (!db) db = admin.firestore();
+  return db;
 }
-const db = admin.firestore();
 
 // V1's content-type field only has two values — map the socmed tracker's
 // richer creative-type taxonomy down to whichever one fits closest.
@@ -28,6 +38,8 @@ export default async function handler(req, res) {
   }
 
   try {
+    const db = getDb();
+
     // Try to match the requester's email to an existing V1 roster entry.
     // If roster_v2 doesn't actually store an "email" field, or there's no
     // match, this just falls back to leaving requestedBy blank and noting
