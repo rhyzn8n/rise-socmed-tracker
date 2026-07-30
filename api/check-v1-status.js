@@ -1,4 +1,22 @@
-import { getV1Db } from "./_lib/v1Admin.js";
+import admin from "firebase-admin";
+
+let db;
+function getV1Db() {
+  if (!admin.apps.length) {
+    const raw = process.env.V1_FIREBASE_SERVICE_ACCOUNT;
+    if (!raw) throw new Error("V1_FIREBASE_SERVICE_ACCOUNT is not set");
+    let creds;
+    try {
+      const decoded = Buffer.from(raw, "base64").toString("utf-8");
+      creds = JSON.parse(decoded);
+    } catch (e) {
+      throw new Error("V1_FIREBASE_SERVICE_ACCOUNT could not be decoded — make sure it's the base64-encoded version of the service account JSON");
+    }
+    admin.initializeApp({ credential: admin.credential.cert(creds) });
+  }
+  if (!db) db = admin.firestore();
+  return db;
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -12,7 +30,6 @@ export default async function handler(req, res) {
 
   try {
     const db = getV1Db();
-    // Firestore's "in" queries cap at 30 ids per call — chunk to be safe for larger lists.
     const chunks = [];
     for (let i = 0; i < ticketIds.length; i += 30) chunks.push(ticketIds.slice(i, i + 30));
 
