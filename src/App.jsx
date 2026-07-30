@@ -298,10 +298,24 @@ export default function RiseSocMedTracker() {
 
   // Reverse sync: periodically check V1 for any synced ticket that's been marked
   // Completed there, and mirror that status back onto the matching local request.
+  //
+  // Two things matter here to avoid burning through Firestore's daily write quota:
+  // 1. `requestsRef` (kept fresh by the effect below) lets this read the latest
+  //    requests WITHOUT having `requests` in this effect's own dependency array —
+  //    otherwise every requests change would tear down and restart this interval.
+  // 2. The update below only creates a new array (and therefore only triggers a
+  //    save) when something ACTUALLY changed. `.map()` always returns a new array
+  //    reference even if every item is identical — treating that as "changed" was
+  //    the actual bug: it re-triggered this effect, which polled again, which
+  //    produced another new array, in a fast feedback loop that had nothing to do
+  //    with the intended 2-minute interval.
+  const requestsRef = useRef(requests);
+  useEffect(() => { requestsRef.current = requests; }, [requests]);
+
   useEffect(() => {
     if (!loaded || !user) return;
     const checkV1Statuses = () => {
-      const pending = requests.filter(r => r.v1TicketId && r.status !== "Completed");
+      const pending = requestsRef.current.filter(r => r.v1TicketId && r.status !== "Completed");
       if (pending.length === 0) return;
       fetch("/api/check-v1-status", {
         method: "POST",
@@ -309,19 +323,24 @@ export default function RiseSocMedTracker() {
         body: JSON.stringify({ ticketIds: pending.map(r => r.v1TicketId) }),
       }).then(res => res.json()).then(data => {
         const statuses = data?.statuses || {};
-        setRequests(rs => rs.map(r => {
-          const v1 = r.v1TicketId && statuses[r.v1TicketId];
-          if (v1 && v1.status === "Completed" && r.status !== "Completed") {
-            return { ...r, status: "Completed" };
-          }
-          return r;
-        }));
+        setRequests(rs => {
+          let changed = false;
+          const next = rs.map(r => {
+            const v1 = r.v1TicketId && statuses[r.v1TicketId];
+            if (v1 && v1.status === "Completed" && r.status !== "Completed") {
+              changed = true;
+              return { ...r, status: "Completed" };
+            }
+            return r;
+          });
+          return changed ? next : rs; // same reference if nothing changed — no state update, no write triggered
+        });
       }).catch(() => { /* best-effort — try again on the next interval */ });
     };
     checkV1Statuses();
-    const interval = setInterval(checkV1Statuses, 120000); // every 2 minutes
+    const interval = setInterval(checkV1Statuses, 300000); // every 5 minutes
     return () => clearInterval(interval);
-  }, [loaded, user, requests]);
+  }, [loaded, user]);
 
   const addChannel = (ch) => {
     CHANNELS.push(ch);
