@@ -250,11 +250,22 @@ export default function RiseSocMedTracker() {
 
   // Every persisted collection goes through this so we always know whether a save
   // is still in flight — used to warn before an accidental refresh/close mid-save.
+  // Debounced per collection: rapid successive edits (e.g. several quick changes
+  // in a row) collapse into a single Firestore write ~800ms after the last one,
+  // instead of one write per change — this is what actually keeps daily write
+  // quota usage down on Firestore's free tier.
+  const saveTimers = useRef({});
   const saveDoc = (name, value) => {
+    if (saveTimers.current[name]) {
+      clearTimeout(saveTimers.current[name]);
+      setPendingSaves(n => Math.max(0, n - 1));
+    }
     setPendingSaves(n => n + 1);
-    return setDoc(doc(db, "riseSocMedData", name), { value })
-      .catch(err => console.error(`Failed to save ${name}:`, err))
-      .finally(() => setPendingSaves(n => Math.max(0, n - 1)));
+    saveTimers.current[name] = setTimeout(() => {
+      setDoc(doc(db, "riseSocMedData", name), { value })
+        .catch(err => console.error(`Failed to save ${name}:`, err))
+        .finally(() => setPendingSaves(n => Math.max(0, n - 1)));
+    }, 800);
   };
 
   useEffect(() => { if (loaded && user) saveDoc("requests", requests); }, [requests, loaded, user]);
