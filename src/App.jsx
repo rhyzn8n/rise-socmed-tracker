@@ -192,7 +192,7 @@ export default function RiseSocMedTracker() {
   const [channelsVersion, setChannelsVersion] = useState(0);
   const [faviconUrl, setFaviconUrl] = useState("");
   const [faviconModalOpen, setFaviconModalOpen] = useState(false);
-  const [theme, setTheme] = useState({ bg: "#F5F6F1", accent: "#146356" });
+  const [theme, setTheme] = useState({ bg: "#F5F6F1", accent: "#146356", sidebar: "#0E2B27" });
   const [themeModalOpen, setThemeModalOpen] = useState(false);
   const [notes, setNotes] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -206,7 +206,13 @@ export default function RiseSocMedTracker() {
     return unsub;
   }, []);
 
-  // Load from Firestore once signed in
+  // Load from Firestore once signed in.
+  // IMPORTANT: depend on user?.uid (a stable string), not the whole `user` object —
+  // Firebase silently refreshes the auth token periodically and gives onAuthStateChanged
+  // a NEW user object each time (same account, different reference). Depending on the
+  // object itself would re-trigger this reload mid-session and overwrite anything not
+  // yet finished saving with the last Firestore snapshot — exactly the kind of "my
+  // just-added entry vanished" bug this is guarding against.
   useEffect(() => {
     if (!user) return;
     (async () => {
@@ -235,13 +241,13 @@ export default function RiseSocMedTracker() {
           setChannelsVersion(v => v + 1);
         }
         if (favSnap.exists()) setFaviconUrl(favSnap.data().value || "");
-        if (themeSnap.exists()) setTheme(themeSnap.data().value || { bg: "#F5F6F1", accent: "#146356" });
+        if (themeSnap.exists()) setTheme(themeSnap.data().value || { bg: "#F5F6F1", accent: "#146356", sidebar: "#0E2B27" });
         if (notesSnap.exists()) setNotes(notesSnap.data().value || []);
       } finally { setLoaded(true); }
     })();
-  }, [user]);
+  }, [user?.uid]);
 
-  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "requests"), { value: requests }).catch(() => {}); }, [requests, loaded, user]);
+  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "requests"), { value: requests }).catch(err => console.error("Failed to save requests:", err)); }, [requests, loaded, user]);
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "channelStats"), { value: channelStats }).catch(() => {}); }, [channelStats, loaded, user]);
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "targets"), { value: targets }).catch(() => {}); }, [targets, loaded, user]);
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "captions"), { value: captions }).catch(() => {}); }, [captions, loaded, user]);
@@ -329,7 +335,7 @@ export default function RiseSocMedTracker() {
   return (
     <div className="app-shell" style={{ display: "flex", minHeight: "100vh", fontFamily: "'Inter',sans-serif", background: "var(--app-bg)", color: "#0E2B27" }}>
       <style>{`
-        :root { --app-bg: ${theme.bg}; --app-accent: ${theme.accent}; }
+        :root { --app-bg: ${theme.bg}; --app-accent: ${theme.accent}; --app-sidebar: ${theme.sidebar || "#0E2B27"}; }
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
         .mono { font-family:'IBM Plex Mono',monospace; }
         .disp { font-family:'Fraunces',serif; }
@@ -354,7 +360,7 @@ export default function RiseSocMedTracker() {
       `}</style>
 
       {/* SIDEBAR */}
-      <div className="no-print app-sidebar" style={{ width: 208, background: "#0E2B27", color: "#F5F6F1", padding: "22px 14px", flexShrink: 0, position: "relative" }}>
+      <div className="no-print app-sidebar" style={{ width: 208, background: "var(--app-sidebar)", color: "#F5F6F1", padding: "22px 14px", flexShrink: 0, position: "relative" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 3, paddingLeft: 6 }}>
             {[6, 10, 14, 19].map((h, i) => (
@@ -454,6 +460,7 @@ export default function RiseSocMedTracker() {
 function ThemeModal({ current, onSave, onClose }) {
   const [bg, setBg] = useState(current.bg || "#F5F6F1");
   const [accent, setAccent] = useState(current.accent || "#146356");
+  const [sidebar, setSidebar] = useState(current.sidebar || "#0E2B27");
 
   return (
     <div style={overlay}>
@@ -468,12 +475,17 @@ function ThemeModal({ current, onSave, onClose }) {
           <input value={bg} onChange={e => setBg(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
         </div>
         <label style={label}>Accent color (buttons, highlights)</label>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
           <input type="color" value={accent} onChange={e => setAccent(e.target.value)} style={{ width: 44, height: 32, border: "1px solid #D8DDD5", borderRadius: 6, padding: 0 }} />
           <input value={accent} onChange={e => setAccent(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
         </div>
-        <div style={{ fontSize: 10.5, color: "#9AA39B", marginBottom: 14 }}>Applies app-wide (background and primary buttons/highlights) for everyone. Full re-skin of every element isn't covered by this yet — just the main background and primary accent.</div>
-        <button onClick={() => onSave({ bg, accent })} style={{ ...primaryBtn, width: "100%", justifyContent: "center" }}>Save Theme</button>
+        <label style={label}>Sidebar color</label>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
+          <input type="color" value={sidebar} onChange={e => setSidebar(e.target.value)} style={{ width: 44, height: 32, border: "1px solid #D8DDD5", borderRadius: 6, padding: 0 }} />
+          <input value={sidebar} onChange={e => setSidebar(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
+        </div>
+        <div style={{ fontSize: 10.5, color: "#9AA39B", marginBottom: 14 }}>Applies app-wide (main background, primary buttons/highlights, and sidebar) for everyone. Full re-skin of every element isn't covered by this yet.</div>
+        <button onClick={() => onSave({ bg, accent, sidebar })} style={{ ...primaryBtn, width: "100%", justifyContent: "center" }}>Save Theme</button>
       </div>
     </div>
   );
@@ -632,7 +644,17 @@ function Requests({ requests, setRequests, captions, user, majorServices = MAJOR
   ).sort((a, b) => b.dateLogged.localeCompare(a.dateLogged));
 
   const cycleStatus = (id) => setRequests(rs => rs.map(r => r.id === id ? { ...r, status: STATUS[(STATUS.indexOf(r.status) + 1) % STATUS.length] } : r));
-  const remove = (id) => setRequests(rs => rs.filter(r => r.id !== id));
+  const remove = (id) => {
+    const target = requests.find(r => r.id === id);
+    setRequests(rs => rs.filter(r => r.id !== id));
+    if (target?.v1TicketId) {
+      fetch("/api/delete-v1-ticket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticketId: target.v1TicketId }),
+      }).catch(() => { /* best-effort — local delete already succeeded either way */ });
+    }
+  };
 
   return (
     <div>
