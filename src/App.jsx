@@ -1881,7 +1881,7 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
           templates={templates} setTemplates={setTemplates}
           majorServices={majorServices} minorServices={minorServices}
           onClose={() => setNewModalDate(null)}
-          onSave={(req) => { setRequests(rs => [...rs, req]); syncRequestToV1(req, user?.email, setRequests); setNewModalDate(null); }}
+          onSave={(req) => { setRequests(rs => [...rs, req]); setNewModalDate(null); }}
         />
       )}
 
