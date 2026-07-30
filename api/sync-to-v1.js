@@ -1,4 +1,22 @@
-import { getV1Db } from "./_lib/v1Admin.js";
+import admin from "firebase-admin";
+
+let db;
+function getV1Db() {
+  if (!admin.apps.length) {
+    const raw = process.env.V1_FIREBASE_SERVICE_ACCOUNT;
+    if (!raw) throw new Error("V1_FIREBASE_SERVICE_ACCOUNT is not set");
+    let creds;
+    try {
+      const decoded = Buffer.from(raw, "base64").toString("utf-8");
+      creds = JSON.parse(decoded);
+    } catch (e) {
+      throw new Error("V1_FIREBASE_SERVICE_ACCOUNT could not be decoded — make sure it's the base64-encoded version of the service account JSON");
+    }
+    admin.initializeApp({ credential: admin.credential.cert(creds) });
+  }
+  if (!db) db = admin.firestore();
+  return db;
+}
 
 // V1's content-type field only has two values — map the socmed tracker's
 // richer creative-type taxonomy down to whichever one fits closest.
@@ -23,9 +41,6 @@ export default async function handler(req, res) {
   try {
     const db = getV1Db();
 
-    // Try to match the requester's email to an existing V1 roster entry.
-    // If there's no match, fall back to leaving requestedBy blank and
-    // noting the email in requesterNotes instead — nothing breaks either way.
     let requestedById = "";
     let finalNotes = requesterNotes;
     if (requesterEmail) {
@@ -45,9 +60,6 @@ export default async function handler(req, res) {
     const nowIso = new Date().toISOString();
     const today = nowIso.slice(0, 10);
 
-    // Use V1's own shared ticket counter (same one its manual "Log request"
-    // flow uses) inside a transaction, instead of guessing "current max + 1" —
-    // avoids two tickets colliding on the same number if created at once.
     const seqRef = db.collection("shared").doc("ticket_seq");
     const nextTicketNo = await db.runTransaction(async (tx) => {
       const seqSnap = await tx.get(seqRef);
