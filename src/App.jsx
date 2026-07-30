@@ -11,7 +11,7 @@ import {
   ChevronDown, Filter, ArrowUp, ArrowDown, CheckCircle2, Clock,
   Circle, Search, AlertTriangle, ChevronUp, MessageSquareText, Copy, Sparkles, Wand2, Hash, FileText,
   CalendarDays, ChevronLeft, ChevronRight, Bell, Ban, RotateCcw, Pencil, Trash2, Smile,
-  Bold, Italic, CaseUpper, CaseLower, CaseSensitive, ShieldCheck, Maximize2, BarChart3, Printer, Grid2X2, PauseCircle, ExternalLink, Image as ImageIcon
+  Bold, Italic, CaseUpper, CaseLower, CaseSensitive, ShieldCheck, Maximize2, BarChart3, Printer, Grid2X2, PauseCircle, ExternalLink, Image as ImageIcon, Palette, StickyNote
 } from "lucide-react";
 
 /* ---------------------------------- DATA ---------------------------------- */
@@ -100,7 +100,7 @@ function getReportRange(periodType, cursor, customStart, customEnd) {
   return { start: fmt(start), end: fmt(end), label: cursor.toLocaleDateString("en-US", { month: "long", year: "numeric" }) };
 }
 const uid = () => Math.random().toString(36).slice(2, 10);
-function syncRequestToV1(req, requesterEmail) {
+function syncRequestToV1(req, requesterEmail, setRequests) {
   fetch("/api/sync-to-v1", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -110,6 +110,10 @@ function syncRequestToV1(req, requesterEmail) {
       purposes: req.purposes || [], creativeType: req.creativeType, requesterEmail: requesterEmail || req.requestedBy || "",
       creativeRef: req.creativeRef || req.imageUrl || "",
     }),
+  }).then(r => r.json()).then(data => {
+    if (data?.success && data.ticketId && setRequests) {
+      setRequests(rs => rs.map(r => r.id === req.id ? { ...r, v1TicketId: data.ticketId, v1TicketNo: data.ticketNo } : r));
+    }
   }).catch(() => { /* sync is best-effort — a failed push doesn't block logging the request locally */ });
 }
 // IMPORTANT: never use Date.toISOString() for calendar/"today" logic — it converts to UTC,
@@ -188,6 +192,9 @@ export default function RiseSocMedTracker() {
   const [channelsVersion, setChannelsVersion] = useState(0);
   const [faviconUrl, setFaviconUrl] = useState("");
   const [faviconModalOpen, setFaviconModalOpen] = useState(false);
+  const [theme, setTheme] = useState({ bg: "#F5F6F1", accent: "#146356" });
+  const [themeModalOpen, setThemeModalOpen] = useState(false);
+  const [notes, setNotes] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
   const [user, setUser] = useState(null);
@@ -204,7 +211,7 @@ export default function RiseSocMedTracker() {
     if (!user) return;
     (async () => {
       try {
-        const [rSnap, cSnap, tSnap, capSnap, tplSnap, svcSnap, chSnap, favSnap] = await Promise.all([
+        const [rSnap, cSnap, tSnap, capSnap, tplSnap, svcSnap, chSnap, favSnap, themeSnap, notesSnap] = await Promise.all([
           getDoc(doc(db, "riseSocMedData", "requests")),
           getDoc(doc(db, "riseSocMedData", "channelStats")),
           getDoc(doc(db, "riseSocMedData", "targets")),
@@ -213,6 +220,8 @@ export default function RiseSocMedTracker() {
           getDoc(doc(db, "riseSocMedData", "extraServices")),
           getDoc(doc(db, "riseSocMedData", "channelsList")),
           getDoc(doc(db, "riseSocMedData", "favicon")),
+          getDoc(doc(db, "riseSocMedData", "theme")),
+          getDoc(doc(db, "riseSocMedData", "notes")),
         ]);
         if (rSnap.exists()) setRequests(rSnap.data().value || []);
         if (cSnap.exists()) setChannelStats(cSnap.data().value || {});
@@ -226,6 +235,8 @@ export default function RiseSocMedTracker() {
           setChannelsVersion(v => v + 1);
         }
         if (favSnap.exists()) setFaviconUrl(favSnap.data().value || "");
+        if (themeSnap.exists()) setTheme(themeSnap.data().value || { bg: "#F5F6F1", accent: "#146356" });
+        if (notesSnap.exists()) setNotes(notesSnap.data().value || []);
       } finally { setLoaded(true); }
     })();
   }, [user]);
@@ -238,12 +249,41 @@ export default function RiseSocMedTracker() {
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "extraServices"), { value: extraServices }).catch(() => {}); }, [extraServices, loaded, user]);
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "channelsList"), { value: CHANNELS }).catch(() => {}); }, [channelsVersion, loaded, user]);
   useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "favicon"), { value: faviconUrl }).catch(() => {}); }, [faviconUrl, loaded, user]);
+  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "theme"), { value: theme }).catch(() => {}); }, [theme, loaded, user]);
+  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "notes"), { value: notes }).catch(() => {}); }, [notes, loaded, user]);
   useEffect(() => {
     if (!faviconUrl) return;
     let link = document.querySelector("link[rel~='icon']");
     if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
     link.href = faviconUrl;
   }, [faviconUrl]);
+
+  // Reverse sync: periodically check V1 for any synced ticket that's been marked
+  // Completed there, and mirror that status back onto the matching local request.
+  useEffect(() => {
+    if (!loaded || !user) return;
+    const checkV1Statuses = () => {
+      const pending = requests.filter(r => r.v1TicketId && r.status !== "Completed");
+      if (pending.length === 0) return;
+      fetch("/api/check-v1-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ticketIds: pending.map(r => r.v1TicketId) }),
+      }).then(res => res.json()).then(data => {
+        const statuses = data?.statuses || {};
+        setRequests(rs => rs.map(r => {
+          const v1 = r.v1TicketId && statuses[r.v1TicketId];
+          if (v1 && v1.status === "Completed" && r.status !== "Completed") {
+            return { ...r, status: "Completed" };
+          }
+          return r;
+        }));
+      }).catch(() => { /* best-effort — try again on the next interval */ });
+    };
+    checkV1Statuses();
+    const interval = setInterval(checkV1Statuses, 120000); // every 2 minutes
+    return () => clearInterval(interval);
+  }, [loaded, user, requests]);
 
   const addChannel = (ch) => {
     CHANNELS.push(ch);
@@ -287,8 +327,9 @@ export default function RiseSocMedTracker() {
     .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
 
   return (
-    <div style={{ display: "flex", minHeight: 620, fontFamily: "'Inter',sans-serif", background: "#F5F6F1", color: "#0E2B27", borderRadius: 12, overflow: "hidden", border: "1px solid #D8DDD5" }}>
+    <div className="app-shell" style={{ display: "flex", minHeight: "100vh", fontFamily: "'Inter',sans-serif", background: "var(--app-bg)", color: "#0E2B27" }}>
       <style>{`
+        :root { --app-bg: ${theme.bg}; --app-accent: ${theme.accent}; }
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
         .mono { font-family:'IBM Plex Mono',monospace; }
         .disp { font-family:'Fraunces',serif; }
@@ -300,10 +341,20 @@ export default function RiseSocMedTracker() {
           .app-main { max-height: none !important; overflow: visible !important; padding: 0 !important; }
           body, .report-page { background: #fff !important; }
         }
+        @media (max-width: 768px) {
+          .app-shell { flex-direction: column !important; }
+          .app-sidebar { width: 100% !important; }
+          .app-nav { display: flex !important; flex-direction: row !important; overflow-x: auto !important; gap: 4px !important; }
+          .app-nav button { flex-shrink: 0; }
+          .app-main { padding: 16px !important; }
+          /* Blunt but effective: collapses any multi-column grid in the main content to one
+             column on phones, rather than hand-converting every inline grid individually. */
+          .app-main [style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+        }
       `}</style>
 
       {/* SIDEBAR */}
-      <div className="no-print" style={{ width: 208, background: "#0E2B27", color: "#F5F6F1", padding: "22px 14px", flexShrink: 0, position: "relative" }}>
+      <div className="no-print app-sidebar" style={{ width: 208, background: "#0E2B27", color: "#F5F6F1", padding: "22px 14px", flexShrink: 0, position: "relative" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 3, paddingLeft: 6 }}>
             {[6, 10, 14, 19].map((h, i) => (
@@ -311,6 +362,11 @@ export default function RiseSocMedTracker() {
             ))}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {isAdmin && (
+              <button onClick={() => setThemeModalOpen(true)} title="Customize background/accent theme (Admin)" style={{ border: "none", background: "transparent", color: "#B7C4BF", padding: 2 }}>
+                <Palette size={15} />
+              </button>
+            )}
             {isAdmin && (
               <button onClick={() => setFaviconModalOpen(true)} title="Customize favicon (Admin)" style={{ border: "none", background: "transparent", color: "#B7C4BF", padding: 2 }}>
                 <ImageIcon size={15} />
@@ -349,18 +405,20 @@ export default function RiseSocMedTracker() {
         )}
         <div className="disp" style={{ fontSize: 22, fontWeight: 600, paddingLeft: 6, marginBottom: 2 }}>Rise</div>
         <div style={{ fontSize: 10.5, opacity: 0.55, paddingLeft: 6, marginBottom: 26, letterSpacing: 0.4 }}>SOCIAL MEDIA TRACKER</div>
-        {NAV.map(n => {
-          const Icon = n.icon; const active = tab === n.id;
-          return (
-            <button key={n.id} onClick={() => setTab(n.id)} style={{
-              display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 10px", marginBottom: 3,
-              background: active ? "#173C36" : "transparent", border: "none", borderRadius: 7,
-              color: active ? "#fff" : "#B7C4BF", fontSize: 13.5, fontWeight: active ? 600 : 500, textAlign: "left",
-            }}>
-              <Icon size={16} strokeWidth={2} /> {n.label}
-            </button>
-          );
-        })}
+        <div className="app-nav">
+          {NAV.map(n => {
+            const Icon = n.icon; const active = tab === n.id;
+            return (
+              <button key={n.id} onClick={() => setTab(n.id)} style={{
+                display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "9px 10px", marginBottom: 3,
+                background: active ? "#173C36" : "transparent", border: "none", borderRadius: 7,
+                color: active ? "#fff" : "#B7C4BF", fontSize: 13.5, fontWeight: active ? 600 : 500, textAlign: "left",
+              }}>
+                <Icon size={16} strokeWidth={2} /> {n.label}
+              </button>
+            );
+          })}
+        </div>
         <div style={{ marginTop: "auto", paddingTop: 20, borderTop: "1px solid #1D4038", fontSize: 11 }}>
           <div style={{ color: "#B7C4BF", marginBottom: 6, wordBreak: "break-all" }}>{user.email}</div>
           <button onClick={() => signOut(auth)} style={{ border: "none", background: "transparent", color: "#E8A33D", fontWeight: 600, padding: 0 }}>Sign out</button>
@@ -368,16 +426,17 @@ export default function RiseSocMedTracker() {
       </div>
 
       {faviconModalOpen && <FaviconModal currentUrl={faviconUrl} onSave={(url) => { setFaviconUrl(url); setFaviconModalOpen(false); }} onClose={() => setFaviconModalOpen(false)} />}
+      {themeModalOpen && <ThemeModal current={theme} onSave={(t) => { setTheme(t); setThemeModalOpen(false); }} onClose={() => setThemeModalOpen(false)} />}
 
       {/* MAIN */}
-      <div className="app-main" style={{ flex: 1, padding: "26px 32px", overflowY: "auto", maxHeight: 620 }}>
+      <div className="app-main" style={{ flex: 1, padding: "26px 32px", overflowY: "auto", minHeight: "100vh" }}>
         {tab === "dashboard" && <Dashboard requests={requests} channelStats={channelStats} targets={targets} allServicesList={allServicesList} />}
         {tab === "requests"  && <Requests requests={requests} setRequests={setRequests} captions={captions} user={user} majorServices={allMajorServices} minorServices={allMinorServices} />}
         {tab === "channels"  && <Channels channelStats={channelStats} setChannelStats={setChannelStats} addChannel={addChannel} deleteChannel={deleteChannel} editChannel={editChannel} channelsVersion={channelsVersion} isAdmin={isAdmin} />}
         {tab === "targets"   && <Targets targets={targets} setTargets={setTargets} requests={requests} majorServices={allMajorServices} />}
         {tab === "captions"  && <Captions captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates} majorServices={allMajorServices} minorServices={allMinorServices} />}
         {tab === "scheduler" && <Scheduler requests={requests} setRequests={setRequests} captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates}
-          targets={targets} setTargets={setTargets} user={user}
+          targets={targets} setTargets={setTargets} user={user} notes={notes} setNotes={setNotes}
           majorServices={allMajorServices} minorServices={allMinorServices} extraServices={extraServices} setExtraServices={setExtraServices} isAdmin={isAdmin} />}
         {tab === "reports" && <Reports requests={requests} channelStats={channelStats} targets={targets} captions={captions}
           majorServices={allMajorServices} minorServices={allMinorServices} allServicesList={allServicesList} extraServices={extraServices} />}
@@ -389,6 +448,36 @@ export default function RiseSocMedTracker() {
 /* ---------------------------------- LOGIN ---------------------------------- */
 
 /* ---------------------------------- FAVICON (admin) ---------------------------------- */
+
+/* ---------------------------------- THEME (admin) ---------------------------------- */
+
+function ThemeModal({ current, onSave, onClose }) {
+  const [bg, setBg] = useState(current.bg || "#F5F6F1");
+  const [accent, setAccent] = useState(current.accent || "#146356");
+
+  return (
+    <div style={overlay}>
+      <div style={modal}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>Customize Theme <span style={{ fontSize: 11, fontWeight: 600, color: "#E8A33D", background: "#E8A33D1A", padding: "2px 8px", borderRadius: 10, marginLeft: 6 }}>Admin</span></div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
+        </div>
+        <label style={label}>Background color</label>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <input type="color" value={bg} onChange={e => setBg(e.target.value)} style={{ width: 44, height: 32, border: "1px solid #D8DDD5", borderRadius: 6, padding: 0 }} />
+          <input value={bg} onChange={e => setBg(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
+        </div>
+        <label style={label}>Accent color (buttons, highlights)</label>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 20 }}>
+          <input type="color" value={accent} onChange={e => setAccent(e.target.value)} style={{ width: 44, height: 32, border: "1px solid #D8DDD5", borderRadius: 6, padding: 0 }} />
+          <input value={accent} onChange={e => setAccent(e.target.value)} style={{ ...inputStyle, flex: 1 }} />
+        </div>
+        <div style={{ fontSize: 10.5, color: "#9AA39B", marginBottom: 14 }}>Applies app-wide (background and primary buttons/highlights) for everyone. Full re-skin of every element isn't covered by this yet — just the main background and primary accent.</div>
+        <button onClick={() => onSave({ bg, accent })} style={{ ...primaryBtn, width: "100%", justifyContent: "center" }}>Save Theme</button>
+      </div>
+    </div>
+  );
+}
 
 function FaviconModal({ currentUrl, onSave, onClose }) {
   const [url, setUrl] = useState(currentUrl || "");
@@ -431,7 +520,7 @@ function Login() {
   };
 
   return (
-    <div style={{ minHeight: 620, display: "flex", alignItems: "center", justifyContent: "center", background: "#0E2B27", borderRadius: 12, fontFamily: "'Inter',sans-serif" }}>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0E2B27", fontFamily: "'Inter',sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Inter:wght@400;500;600;700&display=swap');`}</style>
       <form onSubmit={submit} style={{ background: "#fff", borderRadius: 12, padding: 32, width: 320 }}>
         <div style={{ fontFamily: "'Fraunces',serif", fontSize: 22, fontWeight: 600, color: "#0E2B27", marginBottom: 4 }}>Rise</div>
@@ -597,7 +686,7 @@ function Requests({ requests, setRequests, captions, user, majorServices = MAJOR
         )}
       </Card>
 
-      {open && <RequestModal user={user} majorServices={majorServices} minorServices={minorServices} onClose={() => setOpen(false)} onSave={(req) => { setRequests(rs => [...rs, req]); syncRequestToV1(req, user?.email); setOpen(false); }} />}
+      {open && <RequestModal user={user} majorServices={majorServices} minorServices={minorServices} onClose={() => setOpen(false)} onSave={(req) => { setRequests(rs => [...rs, req]); syncRequestToV1(req, user?.email, setRequests); setOpen(false); }} />}
     </div>
   );
 }
@@ -698,6 +787,7 @@ function RequestModal({ onClose, onSave, user, majorServices = MAJOR_SERVICES, m
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 110, overflowY: "auto", border: "1px solid #E3E6E0", borderRadius: 8, padding: 8, marginBottom: 6 }}>
           {list.map(s => <button key={s} onClick={() => toggleService(s)} style={pillBtn(services.includes(s))}>{s}</button>)}
+          <OtherTagPicker services={services} setServices={setServices} />
         </div>
         {services.length > 0 && <div style={{ fontSize: 11, color: "#5B675F", marginBottom: 14 }}>{services.length} tagged: {services.join(", ")}</div>}
 
@@ -724,6 +814,7 @@ function Channels({ channelStats, setChannelStats, addChannel, deleteChannel, ed
   const [bulkOpen, setBulkOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);
   const [growthView, setGrowthView] = useState("month");
+  const [chartStyle, setChartStyle] = useState("line");
   const [confirmDeleteMonth, setConfirmDeleteMonth] = useState(null);
   const channel = CHANNELS.find(c => c.id === selected) || CHANNELS[0];
   const rows = channel ? (channelStats[channel.id] || []).sort((a, b) => a.month.localeCompare(b.month)) : [];
@@ -824,45 +915,82 @@ function Channels({ channelStats, setChannelStats, addChannel, deleteChannel, ed
             )}
           </div>
 
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 10 }}>
-            {["month", "quarter", "year"].map(g => (
-              <button key={g} onClick={() => setGrowthView(g)} style={pillBtn(growthView === g)}>{g[0].toUpperCase() + g.slice(1)}ly</button>
-            ))}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 6 }}>
+              {["line", "bar"].map(s => (
+                <button key={s} onClick={() => setChartStyle(s)} style={pillBtn(chartStyle === s)}>{s[0].toUpperCase() + s.slice(1)}</button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {["month", "quarter", "year"].map(g => (
+                <button key={g} onClick={() => setGrowthView(g)} style={pillBtn(growthView === g)}>{g[0].toUpperCase() + g.slice(1)}ly</button>
+              ))}
+            </div>
           </div>
 
           <Card title={`${channel.name} — Follower Count`} style={{ marginBottom: 16 }}>
             <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" />
-                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5B675F" }} />
-                <YAxis tick={{ fontSize: 11, fill: "#5B675F" }} domain={["auto", "auto"]} />
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} formatter={v => Number(v).toLocaleString()} />
-                <Line type="monotone" dataKey="followers" name="Followers" stroke={channel.color} strokeWidth={2.5} dot={{ r: 3 }} />
-              </LineChart>
+              {chartStyle === "bar" ? (
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5B675F" }} />
+                  <YAxis tick={{ fontSize: 11, fill: "#5B675F" }} domain={["auto", "auto"]} />
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} formatter={v => Number(v).toLocaleString()} />
+                  <Bar dataKey="followers" name="Followers" fill={channel.color} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              ) : (
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5B675F" }} />
+                  <YAxis tick={{ fontSize: 11, fill: "#5B675F" }} domain={["auto", "auto"]} />
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} formatter={v => Number(v).toLocaleString()} />
+                  <Line type="monotone" dataKey="followers" name="Followers" stroke={channel.color} strokeWidth={2.5} dot={{ r: 3 }} />
+                </LineChart>
+              )}
             </ResponsiveContainer>
           </Card>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
             <Card title={`${channel.name} — Average Growth Rate`}>
               <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5B675F" }} />
-                  <YAxis tick={{ fontSize: 11, fill: "#5B675F" }} />
-                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} formatter={v => `${Number(v).toFixed(2)}%`} />
-                  <Line type="monotone" dataKey="growthPct" name="Growth %" stroke={channel.color} strokeWidth={2.5} dot={{ r: 3 }} />
-                </LineChart>
+                {chartStyle === "bar" ? (
+                  <BarChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" />
+                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5B675F" }} />
+                    <YAxis tick={{ fontSize: 11, fill: "#5B675F" }} />
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} formatter={v => `${Number(v).toFixed(2)}%`} />
+                    <Bar dataKey="growthPct" name="Growth %" fill={channel.color} radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                ) : (
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" />
+                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5B675F" }} />
+                    <YAxis tick={{ fontSize: 11, fill: "#5B675F" }} />
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} formatter={v => `${Number(v).toFixed(2)}%`} />
+                    <Line type="monotone" dataKey="growthPct" name="Growth %" stroke={channel.color} strokeWidth={2.5} dot={{ r: 3 }} />
+                  </LineChart>
+                )}
               </ResponsiveContainer>
             </Card>
             <Card title={`${channel.name} — Engagement Rate`}>
               <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5B675F" }} />
-                  <YAxis tick={{ fontSize: 11, fill: "#5B675F" }} />
-                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} formatter={v => `${Number(v).toFixed(2)}%`} />
-                  <Line type="monotone" dataKey="engagement30" name="Engagement %" stroke="#E8A33D" strokeWidth={2.5} dot={{ r: 3 }} />
-                </LineChart>
+                {chartStyle === "bar" ? (
+                  <BarChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" />
+                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5B675F" }} />
+                    <YAxis tick={{ fontSize: 11, fill: "#5B675F" }} />
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} formatter={v => `${Number(v).toFixed(2)}%`} />
+                    <Bar dataKey="engagement30" name="Engagement %" fill="#E8A33D" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                ) : (
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" />
+                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5B675F" }} />
+                    <YAxis tick={{ fontSize: 11, fill: "#5B675F" }} />
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} formatter={v => `${Number(v).toFixed(2)}%`} />
+                    <Line type="monotone" dataKey="engagement30" name="Engagement %" stroke="#E8A33D" strokeWidth={2.5} dot={{ r: 3 }} />
+                  </LineChart>
+                )}
               </ResponsiveContainer>
             </Card>
           </div>
@@ -1085,6 +1213,8 @@ function ChannelManagerModal({ onClose, onAdd, onDelete, onEdit }) {
 
 function Targets({ targets, setTargets, requests, majorServices = MAJOR_SERVICES }) {
   const [open, setOpen] = useState(false);
+  const [editingTarget, setEditingTarget] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
   const progressFor = (t) => {
     const now = new Date();
@@ -1110,6 +1240,8 @@ function Targets({ targets, setTargets, requests, majorServices = MAJOR_SERVICES
     return { label: "Behind", color: "#C4544A" };
   };
 
+  const removeTarget = (id) => { setTargets(ts => ts.filter(t => t.id !== id)); setConfirmDeleteId(null); };
+
   return (
     <div>
       <Header title="Targets" sub="Admin-set post targets, tracked per channel and per service" action={
@@ -1130,7 +1262,15 @@ function Targets({ targets, setTargets, requests, majorServices = MAJOR_SERVICES
                     <div style={{ fontSize: 13, fontWeight: 600 }}>{name}</div>
                     <div style={{ fontSize: 11, color: "#5B675F", textTransform: "capitalize" }}>{t.scope} · per {t.period}</div>
                   </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: st.color, background: st.color + "1A", padding: "3px 9px", borderRadius: 12 }}>{st.label}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: st.color, background: st.color + "1A", padding: "3px 9px", borderRadius: 12 }}>{st.label}</span>
+                    <button onClick={() => setEditingTarget(t)} style={{ border: "none", background: "transparent", color: "#146356" }}><Pencil size={13} /></button>
+                    {confirmDeleteId === t.id ? (
+                      <button onClick={() => removeTarget(t.id)} style={{ border: "none", background: "transparent", color: "#C4544A", fontSize: 10.5, fontWeight: 700 }}>Confirm?</button>
+                    ) : (
+                      <button onClick={() => setConfirmDeleteId(t.id)} style={{ border: "none", background: "transparent", color: "#C4544A" }}><Trash2 size={13} /></button>
+                    )}
+                  </div>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 5 }}>
                   <span className="mono">{count} / {t.goal} posts</span>
@@ -1146,23 +1286,31 @@ function Targets({ targets, setTargets, requests, majorServices = MAJOR_SERVICES
       )}
 
       {open && <TargetModal majorServices={majorServices} onClose={() => setOpen(false)} onSave={(t) => { setTargets(ts => [...ts, t]); setOpen(false); }} />}
+      {editingTarget && (
+        <TargetModal
+          majorServices={majorServices}
+          editing={editingTarget}
+          onClose={() => setEditingTarget(null)}
+          onSave={(t) => { setTargets(ts => ts.map(x => x.id === t.id ? t : x)); setEditingTarget(null); }}
+        />
+      )}
     </div>
   );
 }
 
-function TargetModal({ onClose, onSave, majorServices = MAJOR_SERVICES }) {
-  const [scope, setScope] = useState("channel");
-  const [target, setTarget] = useState(CHANNELS[0].id);
-  const [period, setPeriod] = useState("week");
-  const [goal, setGoal] = useState(5);
+function TargetModal({ onClose, onSave, majorServices = MAJOR_SERVICES, editing }) {
+  const [scope, setScope] = useState(editing?.scope || "channel");
+  const [target, setTarget] = useState(editing?.target || CHANNELS[0].id);
+  const [period, setPeriod] = useState(editing?.period || "week");
+  const [goal, setGoal] = useState(editing?.goal || 5);
 
-  useEffect(() => { setTarget(scope === "channel" ? CHANNELS[0].id : majorServices[0]); }, [scope]);
+  useEffect(() => { if (!editing) setTarget(scope === "channel" ? CHANNELS[0].id : majorServices[0]); }, [scope]);
 
   return (
     <div style={overlay}>
       <div style={modal}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>New Target</div>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>{editing ? "Edit Target" : "New Target"}</div>
           <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
         </div>
         <label style={label}>Scope</label>
@@ -1186,7 +1334,7 @@ function TargetModal({ onClose, onSave, majorServices = MAJOR_SERVICES }) {
             <input type="number" value={goal} onChange={e => setGoal(Number(e.target.value))} style={{ ...inputStyle, width: "100%" }} />
           </div>
         </div>
-        <button onClick={() => onSave({ id: uid(), scope, target, period, goal })} style={{ ...primaryBtn, width: "100%", justifyContent: "center" }}>Create Target</button>
+        <button onClick={() => onSave({ id: editing?.id || uid(), scope, target, period, goal })} style={{ ...primaryBtn, width: "100%", justifyContent: "center" }}>{editing ? "Save Changes" : "Create Target"}</button>
       </div>
     </div>
   );
@@ -1197,6 +1345,7 @@ function TargetModal({ onClose, onSave, majorServices = MAJOR_SERVICES }) {
 function Captions({ captions, setCaptions, templates, setTemplates, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES }) {
   const [view, setView] = useState("library"); // library | templates
   const [open, setOpen] = useState(false);
+  const [editingCaption, setEditingCaption] = useState(null);
   const [templateEditTarget, setTemplateEditTarget] = useState(null);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
@@ -1243,7 +1392,7 @@ function Captions({ captions, setCaptions, templates, setTemplates, majorService
 
           {filtered.length === 0 ? <Card><Empty text="No captions match. Create your first one above." /></Card> : (
             <div style={{ display: "grid", gap: 10 }}>
-              {filtered.map(c => <CaptionCard key={c.id} c={c} onStatus={setStatus} onRemove={remove} />)}
+              {filtered.map(c => <CaptionCard key={c.id} c={c} onStatus={setStatus} onRemove={remove} onEdit={setEditingCaption} />)}
             </div>
           )}
         </>
@@ -1271,6 +1420,14 @@ function Captions({ captions, setCaptions, templates, setTemplates, majorService
 
       {open && <CaptionModal onClose={() => setOpen(false)} templates={templates} majorServices={majorServices} minorServices={minorServices}
         onSave={(cap) => { setCaptions(cs => [...cs, cap]); setOpen(false); }} />}
+      {editingCaption && (
+        <CaptionModal
+          editing={editingCaption}
+          onClose={() => setEditingCaption(null)}
+          templates={templates} majorServices={majorServices} minorServices={minorServices}
+          onSave={(cap) => { setCaptions(cs => cs.map(c => c.id === cap.id ? cap : c)); setEditingCaption(null); }}
+        />
+      )}
       {templateEditTarget && (
         <TemplateEditModal
           template={templateEditTarget}
@@ -1285,7 +1442,7 @@ function Captions({ captions, setCaptions, templates, setTemplates, majorService
   );
 }
 
-function CaptionCard({ c, onStatus, onRemove }) {
+function CaptionCard({ c, onStatus, onRemove, onEdit }) {
   const [copied, setCopied] = useState(false);
   const platform = CHANNELS.find(ch => ch.id === c.channel)?.platform;
   const limit = PLATFORM_CAPTION_LIMIT[platform] || 300;
@@ -1313,6 +1470,7 @@ function CaptionCard({ c, onStatus, onRemove }) {
           }}>
             {CAPTION_STATUS.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
+          <button onClick={() => onEdit(c)} style={{ border: "none", background: "transparent", color: "#146356" }}><Pencil size={13} /></button>
           <button onClick={() => onRemove(c.id)} style={{ border: "none", background: "transparent", color: "#C4544A" }}><X size={14} /></button>
         </div>
       </div>
@@ -1341,16 +1499,16 @@ function CaptionCard({ c, onStatus, onRemove }) {
   );
 }
 
-function CaptionModal({ onClose, onSave, templates, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES }) {
-  const [brief, setBrief] = useState("");
+function CaptionModal({ onClose, onSave, templates, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES, editing }) {
+  const [brief, setBrief] = useState(editing?.brief || "");
   const [serviceType, setServiceType] = useState("major");
-  const [services, setServices] = useState([]);
-  const [creativeType, setCreativeType] = useState(CREATIVE_TYPES[0]);
-  const [channel, setChannel] = useState(CHANNELS[0].id);
-  const [campaign, setCampaign] = useState("");
-  const [textEn, setTextEn] = useState("");
-  const [textFil, setTextFil] = useState("");
-  const [hashtagsInput, setHashtagsInput] = useState("");
+  const [services, setServices] = useState(editing?.services || []);
+  const [creativeType, setCreativeType] = useState(editing?.creativeType || CREATIVE_TYPES[0]);
+  const [channel, setChannel] = useState(editing?.channel || CHANNELS[0].id);
+  const [campaign, setCampaign] = useState(editing?.campaign || "");
+  const [textEn, setTextEn] = useState(editing?.textEn || "");
+  const [textFil, setTextFil] = useState(editing?.textFil || "");
+  const [hashtagsInput, setHashtagsInput] = useState((editing?.hashtags || []).join(", "));
   const list = serviceType === "major" ? majorServices : minorServices;
 
   const toggleService = (s) => setServices(cur => cur.includes(s) ? cur.filter(x => x !== s) : [...cur, s]);
@@ -1365,7 +1523,7 @@ function CaptionModal({ onClose, onSave, templates, majorServices = MAJOR_SERVIC
     <div style={overlay}>
       <div style={{ ...modal, width: 560 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>New Caption</div>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>{editing ? "Edit Caption" : "New Caption"}</div>
           <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
         </div>
 
@@ -1394,6 +1552,7 @@ function CaptionModal({ onClose, onSave, templates, majorServices = MAJOR_SERVIC
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 90, overflowY: "auto", border: "1px solid #E3E6E0", borderRadius: 8, padding: 8, marginBottom: 14 }}>
           {list.map(s => <button key={s} onClick={() => toggleService(s)} style={pillBtn(services.includes(s))}>{s}</button>)}
+          <OtherTagPicker services={services} setServices={setServices} />
         </div>
 
         {templates.length > 0 && (
@@ -1421,12 +1580,12 @@ function CaptionModal({ onClose, onSave, templates, majorServices = MAJOR_SERVIC
         <button
           disabled={!brief || services.length === 0 || !textEn}
           onClick={() => onSave({
-            id: uid(), brief, services, creativeType, channel, campaign, textEn, textFil,
+            id: editing?.id || uid(), brief, services, creativeType, channel, campaign, textEn, textFil,
             hashtags: hashtagsInput.split(",").map(h => h.trim()).filter(Boolean),
-            status: "Draft", dateCreated: localDateStr(new Date()),
+            status: editing?.status || "Draft", dateCreated: editing?.dateCreated || localDateStr(new Date()),
           })}
           style={{ ...primaryBtn, width: "100%", justifyContent: "center", opacity: (!brief || services.length === 0 || !textEn) ? 0.5 : 1 }}
-        >Save Caption</button>
+        >{editing ? "Save Changes" : "Save Caption"}</button>
       </div>
     </div>
   );
@@ -1435,7 +1594,8 @@ function CaptionModal({ onClose, onSave, templates, majorServices = MAJOR_SERVIC
 
 /* ---------------------------------- SCHEDULER ---------------------------------- */
 
-function Scheduler({ requests, setRequests, captions, setCaptions, templates, setTemplates, targets, setTargets, user, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES, extraServices = { major: [], minor: [] }, setExtraServices, isAdmin }) {
+function Scheduler({ requests, setRequests, captions, setCaptions, templates, setTemplates, targets, setTargets, user, notes, setNotes, majorServices = MAJOR_SERVICES, minorServices = MINOR_SERVICES, extraServices = { major: [], minor: [] }, setExtraServices, isAdmin }) {
+  const [section, setSection] = useState("calendar"); // calendar | notes
   const [view, setView] = useState("month");
   const [cursor, setCursor] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(null);
@@ -1535,6 +1695,14 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
         </div>
       } />
 
+      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+        <button onClick={() => setSection("calendar")} style={pillBtn(section === "calendar")}><CalendarDays size={12} style={{ verticalAlign: -1, marginRight: 4 }} />Calendar</button>
+        <button onClick={() => setSection("notes")} style={pillBtn(section === "notes")}><StickyNote size={12} style={{ verticalAlign: -1, marginRight: 4 }} />Notes</button>
+      </div>
+
+      {section === "notes" && <NotesBoard notes={notes} setNotes={setNotes} user={user} />}
+      {section === "calendar" && (
+      <>
       <Card style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 6 }}>
           <div style={{ fontSize: 13, fontWeight: 700 }}>Status Dashboard</div>
@@ -1703,6 +1871,9 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
         </div>
       )}
 
+      </>
+      )}
+
       {newModalDate && (
         <SchedulerPostModal
           initialDate={newModalDate}
@@ -1710,7 +1881,7 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
           templates={templates} setTemplates={setTemplates}
           majorServices={majorServices} minorServices={minorServices}
           onClose={() => setNewModalDate(null)}
-          onSave={(req) => { setRequests(rs => [...rs, req]); syncRequestToV1(req, user?.email); setNewModalDate(null); }}
+          onSave={(req) => { setRequests(rs => [...rs, req]); syncRequestToV1(req, user?.email, setRequests); setNewModalDate(null); }}
         />
       )}
 
@@ -1834,6 +2005,90 @@ function PostDetailModal({ post, captions, extraServices, onClose, onStatusChang
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ---------------------------------- INTERACTIVE NOTES ---------------------------------- */
+
+const NOTE_COLORS = ["#FFF3B0", "#FFD6D6", "#D6F5E3", "#D6E8FF", "#EAD6FF", "#FFE3D6"];
+
+function NotesBoard({ notes, setNotes, user }) {
+  const [adding, setAdding] = useState(false);
+  const [draftText, setDraftText] = useState("");
+  const [draftColor, setDraftColor] = useState(NOTE_COLORS[0]);
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+
+  const addNote = () => {
+    if (!draftText.trim()) return;
+    setNotes(ns => [...ns, { id: uid(), text: draftText.trim(), color: draftColor, by: user?.email || "", date: localDateStr(new Date()) }]);
+    setDraftText(""); setDraftColor(NOTE_COLORS[0]); setAdding(false);
+  };
+  const saveEdit = (id) => {
+    setNotes(ns => ns.map(n => n.id === id ? { ...n, text: editText.trim() } : n));
+    setEditingId(null);
+  };
+  const removeNote = (id) => { setNotes(ns => ns.filter(n => n.id !== id)); setConfirmDeleteId(null); };
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 14 }}>
+        <button onClick={() => setAdding(v => !v)} style={primaryBtn}><Plus size={15} /> New Note</button>
+      </div>
+
+      {adding && (
+        <Card style={{ marginBottom: 16 }}>
+          <RichCaptionField value={draftText} onChange={setDraftText} placeholder="Write a note for the team..." rows={3} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+            <span style={{ fontSize: 11, color: "#5B675F", fontWeight: 600 }}>Color:</span>
+            {NOTE_COLORS.map(c => (
+              <button key={c} onClick={() => setDraftColor(c)} style={{
+                width: 20, height: 20, borderRadius: "50%", background: c, border: draftColor === c ? "2px solid #0E2B27" : "1px solid #D8DDD5", padding: 0,
+              }} />
+            ))}
+            <div style={{ flex: 1 }} />
+            <button onClick={addNote} disabled={!draftText.trim()} style={{ ...primaryBtn, opacity: !draftText.trim() ? 0.5 : 1 }}>Save Note</button>
+            <button onClick={() => setAdding(false)} style={{ ...pillBtn(false), padding: "8px 14px" }}>Cancel</button>
+          </div>
+        </Card>
+      )}
+
+      {notes.length === 0 ? (
+        <Card><Empty text="No notes yet. Add one above — great for quick reminders, ideas, or things to flag for the team." /></Card>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14 }}>
+          {[...notes].reverse().map(n => (
+            <div key={n.id} style={{ background: n.color, borderRadius: 10, padding: 14, minHeight: 130, display: "flex", flexDirection: "column", boxShadow: "0 2px 6px rgba(0,0,0,0.08)" }}>
+              {editingId === n.id ? (
+                <>
+                  <textarea value={editText} onChange={e => setEditText(e.target.value)} rows={4} style={{ ...inputStyle, background: "rgba(255,255,255,0.6)", border: "1px solid rgba(0,0,0,0.15)", width: "100%", resize: "vertical", fontSize: 12.5, marginBottom: 8, flex: 1 }} />
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => saveEdit(n.id)} style={{ border: "none", background: "#0E2B27", color: "#fff", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 600 }}>Save</button>
+                    <button onClick={() => setEditingId(null)} style={{ border: "none", background: "transparent", color: "#0E2B27", fontSize: 11, fontWeight: 600 }}>Cancel</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12.5, color: "#2A2A2A", whiteSpace: "pre-wrap", flex: 1, marginBottom: 10 }}>{n.text}</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ fontSize: 9.5, color: "rgba(0,0,0,0.5)" }}>{n.by && `${n.by.split("@")[0]} · `}{n.date}</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={() => { setEditingId(n.id); setEditText(n.text); }} style={{ border: "none", background: "transparent", color: "rgba(0,0,0,0.55)" }}><Pencil size={12} /></button>
+                      {confirmDeleteId === n.id ? (
+                        <button onClick={() => removeNote(n.id)} style={{ border: "none", background: "transparent", color: "#C4544A", fontSize: 10, fontWeight: 700 }}>Confirm?</button>
+                      ) : (
+                        <button onClick={() => setConfirmDeleteId(n.id)} style={{ border: "none", background: "transparent", color: "rgba(0,0,0,0.55)" }}><Trash2 size={12} /></button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1979,6 +2234,7 @@ function SchedulerPostModal({ onClose, onSave, onRemove, initialDate, editingPos
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 90, overflowY: "auto", border: "1px solid #E3E6E0", borderRadius: 8, padding: 8, marginBottom: 14 }}>
           {list.map(s => <button key={s} onClick={() => toggleService(s)} style={pillBtn(services.includes(s))}>{s}</button>)}
+          <OtherTagPicker services={services} setServices={setServices} />
         </div>
 
         <CaptionContainer
@@ -2204,6 +2460,7 @@ function Reports({ requests, channelStats, targets, captions, majorServices, min
   const [cursor, setCursor] = useState(new Date());
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
+  const [focusChannel, setFocusChannel] = useState("all");
 
   const { start, end, label } = useMemo(() => getReportRange(periodType, cursor, customStart, customEnd), [periodType, cursor, customStart, customEnd]);
 
@@ -2326,27 +2583,61 @@ function Reports({ requests, channelStats, targets, captions, majorServices, min
       </div>
 
       <Card title="Channel Performance" style={{ marginBottom: 16 }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
-          <thead><tr style={{ textAlign: "left", color: "#5B675F", borderBottom: "1px solid #E3E6E0" }}>
-            <th style={th}>Channel</th><th style={th}>Followers</th><th style={th}>Growth</th><th style={th}>Rating</th><th style={th}>Engagement</th><th style={th}>Rating</th>
-          </tr></thead>
-          <tbody>
-            {channelPerf.map(({ channel, latest, growthRating, engRating }) => (
-              <tr key={channel.id} style={{ borderBottom: "1px solid #EEF0EC" }}>
-                <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: channel.color }} />{channel.name}</div></td>
-                {latest ? (
-                  <>
-                    <td style={td} className="mono">{Number(latest.followers).toLocaleString()}</td>
-                    <td style={td} className="mono">{latest.growthPct.toFixed(2)}%</td>
-                    <td style={td}><RatingBadge label={growthRating} /></td>
-                    <td style={td} className="mono">{latest.engagement30}%</td>
-                    <td style={td}><RatingBadge label={engRating} /></td>
-                  </>
-                ) : <td colSpan={5} style={{ ...td, color: "#9AA39B" }}>No stats logged for this period</td>}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+          <select value={focusChannel} onChange={e => setFocusChannel(e.target.value)} style={{ ...inputStyle, width: 220 }}>
+            <option value="all">All Channels (cumulative)</option>
+            {CHANNELS.map(c => <option key={c.id} value={c.id}>{c.name} (individual)</option>)}
+          </select>
+        </div>
+
+        {focusChannel === "all" ? (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+            <thead><tr style={{ textAlign: "left", color: "#5B675F", borderBottom: "1px solid #E3E6E0" }}>
+              <th style={th}>Channel</th><th style={th}>Followers</th><th style={th}>Growth</th><th style={th}>Rating</th><th style={th}>Engagement</th><th style={th}>Rating</th>
+            </tr></thead>
+            <tbody>
+              {channelPerf.map(({ channel, latest, growthRating, engRating }) => (
+                <tr key={channel.id} style={{ borderBottom: "1px solid #EEF0EC" }}>
+                  <td style={td}><div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: channel.color }} />{channel.name}</div></td>
+                  {latest ? (
+                    <>
+                      <td style={td} className="mono">{Number(latest.followers).toLocaleString()}</td>
+                      <td style={td} className="mono">{latest.growthPct.toFixed(2)}%</td>
+                      <td style={td}><RatingBadge label={growthRating} /></td>
+                      <td style={td} className="mono">{latest.engagement30}%</td>
+                      <td style={td}><RatingBadge label={engRating} /></td>
+                    </>
+                  ) : <td colSpan={5} style={{ ...td, color: "#9AA39B" }}>No stats logged for this period</td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          (() => {
+            const ch = CHANNELS.find(c => c.id === focusChannel);
+            const rows = (channelStats[focusChannel] || []).filter(r => r.month >= start.slice(0, 7) && r.month <= end.slice(0, 7)).sort((a, b) => a.month.localeCompare(b.month)).map(r => ({ ...r, label: monthLabel(r.month) }));
+            if (rows.length === 0) return <Empty text={`No stats logged for ${ch?.name} in this period.`} />;
+            const latest = rows[rows.length - 1];
+            return (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14, marginBottom: 16 }}>
+                  <StatCard label="Followers" value={Number(latest.followers).toLocaleString()} />
+                  <StatCard label="Growth Rate" value={`${latest.growthPct.toFixed(2)}%`} badge={rate(ch.platform, "growth", latest.growthPct)} badgeColor={RATING_COLOR[rate(ch.platform, "growth", latest.growthPct)]} />
+                  <StatCard label="Engagement Rate" value={`${latest.engagement30}%`} badge={rate(ch.platform, "engagement", latest.engagement30)} badgeColor={RATING_COLOR[rate(ch.platform, "engagement", latest.engagement30)]} />
+                </div>
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={rows}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E3E6E0" />
+                    <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#5B675F" }} />
+                    <YAxis tick={{ fontSize: 11, fill: "#5B675F" }} domain={["auto", "auto"]} />
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #D8DDD5" }} formatter={v => Number(v).toLocaleString()} />
+                    <Line type="monotone" dataKey="followers" name="Followers" stroke={ch.color} strokeWidth={2.5} dot={{ r: 3 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </>
+            );
+          })()
+        )}
       </Card>
 
       <Card title="Post Status Summary" style={{ marginBottom: 16 }}>
@@ -2436,6 +2727,26 @@ function Header({ title, sub, action }) {
   );
 }
 const toolbarBtn = { border: "1px solid #D8DDD5", background: "#fff", borderRadius: 5, padding: "3px 6px", color: "#0E2B27", display: "flex" };
+
+function OtherTagPicker({ services, setServices }) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const addOther = () => {
+    const v = value.trim();
+    if (v && !services.includes(v)) setServices(cur => [...cur, v]);
+    setValue(""); setOpen(false);
+  };
+  if (!open) {
+    return <button onClick={() => setOpen(true)} style={pillBtn(false)}>+ Other</button>;
+  }
+  return (
+    <span style={{ display: "inline-flex", gap: 4 }}>
+      <input value={value} onChange={e => setValue(e.target.value)} onKeyDown={e => e.key === "Enter" && addOther()}
+        placeholder="Type a service..." autoFocus style={{ ...inputStyle, fontSize: 11, padding: "4px 8px", width: 140 }} />
+      <button onClick={addOther} style={{ ...pillBtn(true), padding: "4px 10px" }}>Add</button>
+    </span>
+  );
+}
 
 function RichCaptionField({ value, onChange, placeholder, rows = 3 }) {
   const taRef = useRef(null);
@@ -2614,7 +2925,7 @@ const td = { padding: "9px 10px", verticalAlign: "top" };
 const label = { fontSize: 11, fontWeight: 600, color: "#5B675F", display: "block", marginBottom: 5 };
 const inputStyle = { border: "1px solid #D8DDD5", borderRadius: 7, padding: "8px 10px", fontSize: 13, outline: "none", color: "#0E2B27" };
 const tagStyle = { fontSize: 10.5, background: "#EEF0EC", padding: "2px 7px", borderRadius: 8, color: "#0E2B27" };
-const primaryBtn = { display: "flex", alignItems: "center", gap: 6, background: "#146356", color: "#fff", border: "none", padding: "9px 15px", borderRadius: 8, fontSize: 13, fontWeight: 600 };
+const primaryBtn = { display: "flex", alignItems: "center", gap: 6, background: "var(--app-accent)", color: "#fff", border: "none", padding: "9px 15px", borderRadius: 8, fontSize: 13, fontWeight: 600 };
 const navBtn = { display: "flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, border: "1px solid #D8DDD5", background: "#fff", borderRadius: 7, color: "#0E2B27" };
 const overlay = { position: "fixed", inset: 0, background: "rgba(14,43,39,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 };
 const modal = { background: "#fff", borderRadius: 12, padding: 24, width: 480, maxHeight: "85vh", overflowY: "auto" };
