@@ -196,6 +196,7 @@ export default function RiseSocMedTracker() {
   const [themeModalOpen, setThemeModalOpen] = useState(false);
   const [notes, setNotes] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [pendingSaves, setPendingSaves] = useState(0);
 
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -247,16 +248,36 @@ export default function RiseSocMedTracker() {
     })();
   }, [user?.uid]);
 
-  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "requests"), { value: requests }).catch(err => console.error("Failed to save requests:", err)); }, [requests, loaded, user]);
-  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "channelStats"), { value: channelStats }).catch(() => {}); }, [channelStats, loaded, user]);
-  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "targets"), { value: targets }).catch(() => {}); }, [targets, loaded, user]);
-  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "captions"), { value: captions }).catch(() => {}); }, [captions, loaded, user]);
-  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "templates"), { value: templates }).catch(() => {}); }, [templates, loaded, user]);
-  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "extraServices"), { value: extraServices }).catch(() => {}); }, [extraServices, loaded, user]);
-  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "channelsList"), { value: CHANNELS }).catch(() => {}); }, [channelsVersion, loaded, user]);
-  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "favicon"), { value: faviconUrl }).catch(() => {}); }, [faviconUrl, loaded, user]);
-  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "theme"), { value: theme }).catch(() => {}); }, [theme, loaded, user]);
-  useEffect(() => { if (loaded && user) setDoc(doc(db, "riseSocMedData", "notes"), { value: notes }).catch(() => {}); }, [notes, loaded, user]);
+  // Every persisted collection goes through this so we always know whether a save
+  // is still in flight — used to warn before an accidental refresh/close mid-save.
+  const saveDoc = (name, value) => {
+    setPendingSaves(n => n + 1);
+    return setDoc(doc(db, "riseSocMedData", name), { value })
+      .catch(err => console.error(`Failed to save ${name}:`, err))
+      .finally(() => setPendingSaves(n => Math.max(0, n - 1)));
+  };
+
+  useEffect(() => { if (loaded && user) saveDoc("requests", requests); }, [requests, loaded, user]);
+  useEffect(() => { if (loaded && user) saveDoc("channelStats", channelStats); }, [channelStats, loaded, user]);
+  useEffect(() => { if (loaded && user) saveDoc("targets", targets); }, [targets, loaded, user]);
+  useEffect(() => { if (loaded && user) saveDoc("captions", captions); }, [captions, loaded, user]);
+  useEffect(() => { if (loaded && user) saveDoc("templates", templates); }, [templates, loaded, user]);
+  useEffect(() => { if (loaded && user) saveDoc("extraServices", extraServices); }, [extraServices, loaded, user]);
+  useEffect(() => { if (loaded && user) saveDoc("channelsList", CHANNELS); }, [channelsVersion, loaded, user]);
+  useEffect(() => { if (loaded && user) saveDoc("favicon", faviconUrl); }, [faviconUrl, loaded, user]);
+  useEffect(() => { if (loaded && user) saveDoc("theme", theme); }, [theme, loaded, user]);
+  useEffect(() => { if (loaded && user) saveDoc("notes", notes); }, [notes, loaded, user]);
+
+  // Warn before leaving/refreshing if a save is still in flight — this is the actual
+  // fix for "my entry vanished after I refreshed": the save was still traveling over
+  // the network and got cancelled by the page unload before it reached Firestore.
+  useEffect(() => {
+    const handler = (e) => {
+      if (pendingSaves > 0) { e.preventDefault(); e.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [pendingSaves]);
   useEffect(() => {
     if (!faviconUrl) return;
     let link = document.querySelector("link[rel~='icon']");
@@ -426,6 +447,11 @@ export default function RiseSocMedTracker() {
           })}
         </div>
         <div style={{ marginTop: "auto", paddingTop: 20, borderTop: "1px solid #1D4038", fontSize: 11 }}>
+          {pendingSaves > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 5, color: "#E8A33D", fontWeight: 600, marginBottom: 8 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#E8A33D" }} /> Saving…
+            </div>
+          )}
           <div style={{ color: "#B7C4BF", marginBottom: 6, wordBreak: "break-all" }}>{user.email}</div>
           <button onClick={() => signOut(auth)} style={{ border: "none", background: "transparent", color: "#E8A33D", fontWeight: 600, padding: 0 }}>Sign out</button>
         </div>
