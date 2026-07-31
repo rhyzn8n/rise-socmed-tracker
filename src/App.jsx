@@ -202,6 +202,8 @@ export default function RiseSocMedTracker() {
   const [themeModalOpen, setThemeModalOpen] = useState(false);
   const [notes, setNotes] = useState([]);
   const [events, setEvents] = useState([]);
+  const [restrictedAccess, setRestrictedAccess] = useState({ eventsOnly: [] });
+  const [accessModalOpen, setAccessModalOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [pendingSaves, setPendingSaves] = useState(0);
 
@@ -225,7 +227,7 @@ export default function RiseSocMedTracker() {
     if (!user) return;
     (async () => {
       try {
-        const [rSnap, cSnap, tSnap, capSnap, tplSnap, svcSnap, chSnap, favSnap, themeSnap, notesSnap, eventsSnap] = await Promise.all([
+        const [rSnap, cSnap, tSnap, capSnap, tplSnap, svcSnap, chSnap, favSnap, themeSnap, notesSnap, eventsSnap, accessSnap] = await Promise.all([
           getDoc(doc(db, "riseSocMedData", "requests")),
           getDoc(doc(db, "riseSocMedData", "channelStats")),
           getDoc(doc(db, "riseSocMedData", "targets")),
@@ -237,6 +239,7 @@ export default function RiseSocMedTracker() {
           getDoc(doc(db, "riseSocMedData", "theme")),
           getDoc(doc(db, "riseSocMedData", "notes")),
           getDoc(doc(db, "riseSocMedData", "events")),
+          getDoc(doc(db, "riseSocMedData", "restrictedAccess")),
         ]);
         if (rSnap.exists()) setRequests(rSnap.data().value || []);
         if (cSnap.exists()) setChannelStats(cSnap.data().value || {});
@@ -253,6 +256,7 @@ export default function RiseSocMedTracker() {
         if (themeSnap.exists()) setTheme(themeSnap.data().value || { bg: "#F5F6F1", accent: "#146356", sidebar: "#0E2B27" });
         if (notesSnap.exists()) setNotes(notesSnap.data().value || []);
         if (eventsSnap.exists()) setEvents(eventsSnap.data().value || []);
+        if (accessSnap.exists()) setRestrictedAccess(accessSnap.data().value || { eventsOnly: [] });
       } finally { setLoaded(true); }
     })();
   }, [user?.uid]);
@@ -288,6 +292,7 @@ export default function RiseSocMedTracker() {
   useEffect(() => { if (loaded && user) saveDoc("theme", theme); }, [theme, loaded, user]);
   useEffect(() => { if (loaded && user) saveDoc("notes", notes); }, [notes, loaded, user]);
   useEffect(() => { if (loaded && user) saveDoc("events", events); }, [events, loaded, user]);
+  useEffect(() => { if (loaded && user) saveDoc("restrictedAccess", restrictedAccess); }, [restrictedAccess, loaded, user]);
 
   // Warn before leaving/refreshing if a save is still in flight — this is the actual
   // fix for "my entry vanished after I refreshed": the save was still traveling over
@@ -367,6 +372,12 @@ export default function RiseSocMedTracker() {
     setChannelsVersion(v => v + 1);
   };
 
+  // Restricted-access users only ever see the Events tab — this must live before the
+  // early returns below since it's a hook, and hooks can't be called conditionally.
+  const isAdminEarly = !!(user && ADMIN_EMAILS.includes(user.email));
+  const isEventsOnlyEarly = !!(user && !isAdminEarly && restrictedAccess.eventsOnly?.includes(user.email));
+  useEffect(() => { if (isEventsOnlyEarly) setTab("events"); }, [isEventsOnlyEarly]);
+
   if (!authChecked) {
     return <div style={{ padding: 40, fontFamily: "'Inter',sans-serif", color: "#5B675F" }}>Loading…</div>;
   }
@@ -387,6 +398,7 @@ export default function RiseSocMedTracker() {
 
   const todayStr = localDateStr(new Date());
   const isAdmin = !!(user && ADMIN_EMAILS.includes(user.email));
+  const isEventsOnly = !!(user && !isAdmin && restrictedAccess.eventsOnly?.includes(user.email));
   const allMajorServices = extraServices.major;
   const allMinorServices = extraServices.minor;
   const allServicesList = [...allMajorServices, ...allMinorServices];
@@ -439,6 +451,11 @@ export default function RiseSocMedTracker() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {isAdmin && (
+              <button onClick={() => setAccessModalOpen(true)} title="Manage restricted access (Admin)" style={{ border: "none", background: "transparent", color: "#B7C4BF", padding: 2 }}>
+                <Users size={15} />
+              </button>
+            )}
+            {isAdmin && (
               <button onClick={() => setThemeModalOpen(true)} title="Customize background/accent theme (Admin)" style={{ border: "none", background: "transparent", color: "#B7C4BF", padding: 2 }}>
                 <Palette size={15} />
               </button>
@@ -483,7 +500,7 @@ export default function RiseSocMedTracker() {
         <div className="disp" style={{ fontSize: 22, fontWeight: 600, paddingLeft: 6, marginBottom: 2 }}>Rise</div>
         <div style={{ fontSize: 10.5, opacity: 0.55, paddingLeft: 6, marginBottom: 26, letterSpacing: 0.4 }}>SOCIAL MEDIA TRACKER</div>
         <div className="app-nav">
-          {NAV.map(n => {
+          {(isEventsOnly ? NAV.filter(n => n.id === "events") : NAV).map(n => {
             const Icon = n.icon; const active = tab === n.id;
             return (
               <button key={n.id} onClick={() => setTab(n.id)} style={{
@@ -509,6 +526,7 @@ export default function RiseSocMedTracker() {
 
       {faviconModalOpen && <FaviconModal currentUrl={faviconUrl} onSave={(url) => { setFaviconUrl(url); setFaviconModalOpen(false); }} onClose={() => setFaviconModalOpen(false)} />}
       {themeModalOpen && <ThemeModal current={theme} onSave={(t) => { setTheme(t); setThemeModalOpen(false); }} onClose={() => setThemeModalOpen(false)} />}
+      {accessModalOpen && <AccessManagerModal current={restrictedAccess} onSave={(a) => { setRestrictedAccess(a); setAccessModalOpen(false); }} onClose={() => setAccessModalOpen(false)} />}
 
       {/* MAIN */}
       <div className="app-main" style={{ flex: 1, padding: "26px 32px", overflowY: "auto", minHeight: "100vh" }}>
@@ -533,6 +551,58 @@ export default function RiseSocMedTracker() {
 /* ---------------------------------- FAVICON (admin) ---------------------------------- */
 
 /* ---------------------------------- THEME (admin) ---------------------------------- */
+
+/* ---------------------------------- ACCESS MANAGEMENT (admin) ---------------------------------- */
+
+function AccessManagerModal({ current, onSave, onClose }) {
+  const [eventsOnly, setEventsOnly] = useState(current.eventsOnly || []);
+  const [newEmail, setNewEmail] = useState("");
+
+  const addEmail = () => {
+    const e = newEmail.trim().toLowerCase();
+    if (!e || eventsOnly.includes(e)) return;
+    setEventsOnly(list => [...list, e]);
+    setNewEmail("");
+  };
+  const removeEmail = (e) => setEventsOnly(list => list.filter(x => x !== e));
+
+  return (
+    <div style={overlay}>
+      <div style={modal}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>Manage Access <span style={{ fontSize: 11, fontWeight: 600, color: "#E8A33D", background: "#E8A33D1A", padding: "2px 8px", borderRadius: 10, marginLeft: 6 }}>Admin</span></div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
+        </div>
+
+        <label style={label}>Events-only access</label>
+        <div style={{ fontSize: 11, color: "#9AA39B", marginBottom: 10 }}>
+          Accounts listed here only ever see the Events tab — every other tab is hidden for them. The account still needs to exist in Firebase Authentication first (same as any other login); this list just restricts what they see once signed in.
+        </div>
+
+        <div style={{ maxHeight: 220, overflowY: "auto", border: "1px solid #E3E6E0", borderRadius: 8, marginBottom: 14 }}>
+          {eventsOnly.length === 0 ? (
+            <div style={{ padding: 14, fontSize: 12, color: "#9AA39B", textAlign: "center" }}>No restricted accounts yet.</div>
+          ) : eventsOnly.map(e => (
+            <div key={e} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderBottom: "1px solid #EEF0EC" }}>
+              <PartyPopper size={13} color="#146356" />
+              <div style={{ flex: 1, fontSize: 12.5, wordBreak: "break-all" }}>{e}</div>
+              <button onClick={() => removeEmail(e)} style={{ border: "none", background: "transparent", color: "#C4544A" }}><Trash2 size={13} /></button>
+            </div>
+          ))}
+        </div>
+
+        <label style={label}>Add restricted account</label>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input value={newEmail} onChange={e => setNewEmail(e.target.value)} onKeyDown={e => e.key === "Enter" && addEmail()} placeholder="email@example.com" style={{ ...inputStyle, flex: 1 }} />
+          <button onClick={addEmail} disabled={!newEmail.trim()} style={{ ...primaryBtn, opacity: !newEmail.trim() ? 0.5 : 1 }}><Plus size={14} /></button>
+        </div>
+        <div style={{ fontSize: 10, color: "#9AA39B", marginTop: 6, marginBottom: 20 }}>Admin accounts are never restricted, even if listed here.</div>
+
+        <button onClick={() => onSave({ eventsOnly })} style={{ ...primaryBtn, width: "100%", justifyContent: "center" }}>Save Access List</button>
+      </div>
+    </div>
+  );
+}
 
 function ThemeModal({ current, onSave, onClose }) {
   const [bg, setBg] = useState(current.bg || "#F5F6F1");
@@ -716,6 +786,7 @@ function Requests({ requests, setRequests, captions, user, majorServices = MAJOR
   const [search, setSearch] = useState("");
 
   const filtered = requests.filter(r =>
+    r.origin !== "scheduler" &&
     (filterStatus === "All" || r.status === filterStatus) &&
     (r.title.toLowerCase().includes(search.toLowerCase()) || r.services.some(s => s.toLowerCase().includes(search.toLowerCase())))
   ).sort((a, b) => b.dateLogged.localeCompare(a.dateLogged));
@@ -816,7 +887,7 @@ function RequestModal({ onClose, onSave, user, majorServices = MAJOR_SERVICES, m
     onSave({
       id: uid(), title, description, requesterNotes, dept, creativeType, priority, dueDate, scheduledDate,
       purposes, channel, services, imageUrl, requestedBy: user?.email || "", status: "Pending",
-      dateLogged: localDateStr(new Date()),
+      dateLogged: localDateStr(new Date()), origin: "requests",
     });
     setSubmitting(false);
   };
@@ -2292,6 +2363,7 @@ function SchedulerPostModal({ onClose, onSave, onRemove, initialDate, editingPos
       id: editingPost?.id || uid(), title, services, creativeType, channel, scheduledDate, linkedCaptionId, creativeRef, postStatus,
       status: editingPost?.status || "Pending",
       dateLogged: editingPost?.dateLogged || localDateStr(new Date()),
+      origin: editingPost?.origin || "scheduler",
     });
   };
 
@@ -3047,15 +3119,43 @@ function eventRating(ev) {
   return (ev.attendance / ev.registrations) * 100;
 }
 
+function eventCountdown(ev) {
+  if (!ev.eventDate) return null;
+  const target = new Date(`${ev.eventDate}T${ev.eventTime || "00:00"}:00`);
+  const now = new Date();
+  const diffMs = target - now;
+  const diffDays = Math.floor(diffMs / 86400000);
+  if (diffMs < 0) {
+    const pastDays = Math.floor(-diffMs / 86400000);
+    return { label: pastDays === 0 ? "Happening today" : `${pastDays}d ago`, past: diffMs < -3600000 && pastDays >= 1, today: pastDays === 0 };
+  }
+  if (diffDays === 0) {
+    const diffHrs = Math.floor(diffMs / 3600000);
+    return { label: diffHrs <= 0 ? "Starting soon" : `In ${diffHrs}h`, today: true, past: false };
+  }
+  return { label: `In ${diffDays}d`, today: false, past: false };
+}
+
+function formatEventDateTime(ev) {
+  if (!ev.eventDate) return "";
+  const d = new Date(`${ev.eventDate}T${ev.eventTime || "00:00"}:00`);
+  const datePart = d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  if (!ev.eventTime) return datePart;
+  const timePart = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return `${datePart} · ${timePart}`;
+}
+
 function Events({ events, setEvents, majorServices, minorServices }) {
   const [open, setOpen] = useState(false);
   const [editingEvent, setEditingEvent] = useState(null);
   const [detailEvent, setDetailEvent] = useState(null);
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("All");
+  const [filterStatus, setFilterStatus] = useState("All");
 
   const filtered = events.filter(e =>
     (filterType === "All" || e.eventType === filterType) &&
+    (filterStatus === "All" || e.status === filterStatus) &&
     (e.title.toLowerCase().includes(search.toLowerCase()) || (e.approvedBy || "").toLowerCase().includes(search.toLowerCase()))
   ).sort((a, b) => b.eventDate.localeCompare(a.eventDate));
 
@@ -3090,16 +3190,20 @@ function Events({ events, setEvents, majorServices, minorServices }) {
           <Search size={14} style={{ position: "absolute", left: 10, top: 10, color: "#9AA39B" }} />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by title or coordinator..." style={{ ...inputStyle, paddingLeft: 30, width: "100%" }} />
         </div>
+        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ ...inputStyle, width: 160 }}>
+          <option>All</option>{EVENT_STATUSES.map(s => <option key={s}>{s}</option>)}
+        </select>
         <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ ...inputStyle, width: 180 }}>
           <option>All</option>{EVENT_TYPES.map(t => <option key={t}>{t}</option>)}
         </select>
       </div>
 
-      {filtered.length === 0 ? <Card><Empty text="No events logged yet." /></Card> : (
+      {filtered.length === 0 ? <Card><Empty text="No events match." /></Card> : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }}>
           {filtered.map(ev => {
             const rating = eventRating(ev);
             const StatusIcon = EVENT_STATUS_ICON[ev.status];
+            const countdown = ev.status === "Upcoming" || ev.status === "Rescheduled" ? eventCountdown(ev) : null;
             return (
               <button key={ev.id} onClick={() => setDetailEvent(ev)} style={{ textAlign: "left", background: "#fff", border: "1px solid #E3E6E0", borderRadius: 10, padding: 16 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
@@ -3108,8 +3212,13 @@ function Events({ events, setEvents, majorServices, minorServices }) {
                     <StatusIcon size={10} /> {ev.status}
                   </span>
                 </div>
-                <div style={{ fontSize: 11, color: "#5B675F", marginBottom: 8 }}>{ev.eventType} · {ev.eventDate}</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
+                <div style={{ fontSize: 11, color: "#5B675F", marginBottom: 6 }}>{ev.eventType === "Other" ? ev.customEventType : ev.eventType} · {formatEventDateTime(ev)}</div>
+                {countdown && (
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, color: countdown.today ? "#C4544A" : "#3E7CB1", background: (countdown.today ? "#C4544A" : "#3E7CB1") + "14", padding: "2px 8px", borderRadius: 10, marginBottom: 8 }}>
+                    <Clock size={10} /> {countdown.label}
+                  </div>
+                )}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10, marginTop: countdown ? 0 : 4 }}>
                   {ev.services.slice(0, 3).map(s => <span key={s} style={tagStyle}>{s}</span>)}
                   {ev.services.length > 3 && <span style={tagStyle}>+{ev.services.length - 3}</span>}
                 </div>
@@ -3187,8 +3296,10 @@ function EventModal({ editing, onClose, onSave, majorServices, minorServices }) 
   const [services, setServices] = useState(editing?.services || []);
   const [approvedBy, setApprovedBy] = useState(editing?.approvedBy || "");
   const [eventDate, setEventDate] = useState(editing?.eventDate || "");
+  const [eventTime, setEventTime] = useState(editing?.eventTime || "");
   const [requirements, setRequirements] = useState(editing?.requirements || []);
-  const [referenceLink, setReferenceLink] = useState(editing?.referenceLink || "");
+  const [registrationLink, setRegistrationLink] = useState(editing?.registrationLink || "");
+  const [materialLink, setMaterialLink] = useState(editing?.materialLink || "");
   const [notes, setNotes] = useState(editing?.notes || "");
   const list = serviceType === "major" ? majorServices : minorServices;
 
@@ -3199,8 +3310,9 @@ function EventModal({ editing, onClose, onSave, majorServices, minorServices }) 
     if (editing && editing.eventDate && eventDate !== editing.eventDate && status === "Upcoming") status = "Rescheduled";
     onSave({
       id: editing?.id || uid(), title, eventType, customEventType: eventType === "Other" ? customEventType : "",
-      channel, services, approvedBy, eventDate, requirements, referenceLink, notes, status,
+      channel, services, approvedBy, eventDate, eventTime, requirements, registrationLink, materialLink, notes, status,
       registrations: editing?.registrations ?? null, attendance: editing?.attendance ?? null,
+      postEventNotes: editing?.postEventNotes || "",
       dateLogged: editing?.dateLogged || localDateStr(new Date()),
     });
   };
@@ -3216,7 +3328,7 @@ function EventModal({ editing, onClose, onSave, majorServices, minorServices }) 
         <label style={label}>Title</label>
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. NCLEX USA Info Session" style={{ ...inputStyle, width: "100%", marginBottom: 12 }} />
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 12 }}>
           <div>
             <label style={label}>Event type</label>
             <select value={eventType} onChange={e => setEventType(e.target.value)} style={{ ...inputStyle, width: "100%" }}>
@@ -3226,6 +3338,10 @@ function EventModal({ editing, onClose, onSave, majorServices, minorServices }) 
           <div>
             <label style={label}>Event date</label>
             <input type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
+          </div>
+          <div>
+            <label style={label}>Event time</label>
+            <input type="time" value={eventTime} onChange={e => setEventTime(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
           </div>
         </div>
         {eventType === "Other" && (
@@ -3261,8 +3377,16 @@ function EventModal({ editing, onClose, onSave, majorServices, minorServices }) 
           <RequirementsChecklist requirements={requirements} setRequirements={setRequirements} />
         </div>
 
-        <label style={label}>Reference link (resources, registration form, etc.)</label>
-        <input value={referenceLink} onChange={e => setReferenceLink(e.target.value)} placeholder="https://..." style={{ ...inputStyle, width: "100%", marginBottom: 12 }} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <label style={label}>Webinar / registration link</label>
+            <input value={registrationLink} onChange={e => setRegistrationLink(e.target.value)} placeholder="https://zoom.us/..." style={{ ...inputStyle, width: "100%" }} />
+          </div>
+          <div>
+            <label style={label}>Material link (deck, resources)</label>
+            <input value={materialLink} onChange={e => setMaterialLink(e.target.value)} placeholder="https://drive.google.com/..." style={{ ...inputStyle, width: "100%" }} />
+          </div>
+        </div>
 
         <label style={label}>Notes</label>
         <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...inputStyle, width: "100%", marginBottom: 20, resize: "vertical" }} />
@@ -3281,12 +3405,14 @@ function EventDetailModal({ event, onClose, onEdit, onSave, onRemove }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [registrations, setRegistrations] = useState(event.registrations ?? "");
   const [attendance, setAttendance] = useState(event.attendance ?? "");
+  const [postEventNotes, setPostEventNotes] = useState(event.postEventNotes || "");
   const ch = CHANNELS.find(c => c.id === event.channel);
   const rating = eventRating({ ...event, registrations: Number(registrations) || null, attendance: Number(attendance) || null });
   const StatusIcon = EVENT_STATUS_ICON[event.status];
+  const countdown = (event.status === "Upcoming" || event.status === "Rescheduled") ? eventCountdown(event) : null;
 
   const saveResults = () => {
-    onSave({ ...event, registrations: registrations === "" ? null : Number(registrations), attendance: attendance === "" ? null : Number(attendance) });
+    onSave({ ...event, registrations: registrations === "" ? null : Number(registrations), attendance: attendance === "" ? null : Number(attendance), postEventNotes });
   };
   const changeStatus = (status) => onSave({ ...event, status });
 
@@ -3297,11 +3423,16 @@ function EventDetailModal({ event, onClose, onEdit, onSave, onRemove }) {
           <div className="disp" style={{ fontSize: 19, fontWeight: 600 }}>{event.title}</div>
           <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
         </div>
-        <div style={{ fontSize: 12, color: "#5B675F", marginBottom: 14 }}>
-          {event.eventType === "Other" ? event.customEventType : event.eventType} {ch && `· ${ch.name}`} · {event.eventDate} {event.approvedBy && `· Approved by ${event.approvedBy}`}
+        <div style={{ fontSize: 12, color: "#5B675F", marginBottom: 6 }}>
+          {event.eventType === "Other" ? event.customEventType : event.eventType} {ch && `· ${ch.name}`} · {formatEventDateTime(event)} {event.approvedBy && `· Approved by ${event.approvedBy}`}
         </div>
+        {countdown && (
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 700, color: countdown.today ? "#C4544A" : "#3E7CB1", background: (countdown.today ? "#C4544A" : "#3E7CB1") + "14", padding: "4px 10px", borderRadius: 12, marginBottom: 14 }}>
+            <Clock size={12} /> {countdown.label}
+          </div>
+        )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16, marginTop: countdown ? 0 : 8 }}>
           <div>
             <label style={label}>Status</label>
             <select value={event.status} onChange={e => changeStatus(e.target.value)} style={{ ...inputStyle, width: "100%", color: EVENT_STATUS_COLOR[event.status], fontWeight: 700 }}>
@@ -3330,8 +3461,15 @@ function EventDetailModal({ event, onClose, onEdit, onSave, onRemove }) {
           </>
         )}
 
-        {event.referenceLink && (
-          <a href={event.referenceLink} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#146356", fontWeight: 600, wordBreak: "break-all", display: "block", marginBottom: 14 }}>{event.referenceLink} →</a>
+        {(event.registrationLink || event.materialLink) && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 14 }}>
+            {event.registrationLink && (
+              <a href={event.registrationLink} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#146356", fontWeight: 600, wordBreak: "break-all" }}>Webinar/Registration link →</a>
+            )}
+            {event.materialLink && (
+              <a href={event.materialLink} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#146356", fontWeight: 600, wordBreak: "break-all" }}>Material link →</a>
+            )}
+          </div>
         )}
         {event.notes && <div style={{ fontSize: 12.5, color: "#5B675F", marginBottom: 16, whiteSpace: "pre-wrap" }}>{event.notes}</div>}
 
@@ -3353,6 +3491,8 @@ function EventDetailModal({ event, onClose, onEdit, onSave, onRemove }) {
               </div>
             </div>
           </div>
+          <label style={label}>Post-event notes</label>
+          <textarea value={postEventNotes} onChange={e => setPostEventNotes(e.target.value)} rows={2} placeholder="What happened, lessons learned, follow-ups..." style={{ ...inputStyle, width: "100%", marginBottom: 10, resize: "vertical" }} />
           <button onClick={saveResults} style={{ ...primaryBtn, fontSize: 12 }}><Users size={13} /> Save Results</button>
         </div>
 
