@@ -392,8 +392,8 @@ export default function RiseSocMedTracker() {
     { id: "targets",   label: "Targets",   icon: Target },
     { id: "captions",  label: "Captions",  icon: MessageSquareText },
     { id: "scheduler", label: "Scheduler", icon: CalendarDays },
-    { id: "reports",   label: "Reports",   icon: BarChart3 },
     { id: "events",    label: "Events",    icon: PartyPopper },
+    { id: "reports",   label: "Reports",   icon: BarChart3 },
   ];
 
   const todayStr = localDateStr(new Date());
@@ -3152,10 +3152,16 @@ function Events({ events, setEvents, majorServices, minorServices }) {
   const [search, setSearch] = useState("");
   const [filterType, setFilterType] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
+  const [monthMode, setMonthMode] = useState("all"); // all | month
+  const [monthCursor, setMonthCursor] = useState(new Date());
+
+  const monthKey = localMonthStr(monthCursor);
+  const shiftMonth = (n) => setMonthCursor(c => { const d = new Date(c); d.setMonth(d.getMonth() + n); return d; });
 
   const filtered = events.filter(e =>
     (filterType === "All" || e.eventType === filterType) &&
     (filterStatus === "All" || e.status === filterStatus) &&
+    (monthMode === "all" || (e.eventDate && e.eventDate.slice(0, 7) === monthKey)) &&
     (e.title.toLowerCase().includes(search.toLowerCase()) || (e.approvedBy || "").toLowerCase().includes(search.toLowerCase()))
   ).sort((a, b) => b.eventDate.localeCompare(a.eventDate));
 
@@ -3183,6 +3189,21 @@ function Events({ events, setEvents, majorServices, minorServices }) {
         <StatCard label="Upcoming" value={upcoming} accent="#3E7CB1" />
         <StatCard label="Completed" value={completed} accent="#146356" />
         <StatCard label="Avg. Attendance Rating" value={avgRating === null ? "—" : `${avgRating.toFixed(1)}%`} />
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={() => setMonthMode("all")} style={pillBtn(monthMode === "all")}>All Events</button>
+          <button onClick={() => setMonthMode("month")} style={pillBtn(monthMode === "month")}>By Month</button>
+        </div>
+        {monthMode === "month" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => shiftMonth(-1)} style={navBtn}><ChevronLeft size={16} /></button>
+            <div style={{ fontSize: 13, fontWeight: 700, minWidth: 130, textAlign: "center" }}>{monthCursor.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</div>
+            <button onClick={() => shiftMonth(1)} style={navBtn}><ChevronRight size={16} /></button>
+            <button onClick={() => setMonthCursor(new Date())} style={{ ...navBtn, width: "auto", padding: "0 10px", fontSize: 11.5, fontWeight: 600 }}>This Month</button>
+          </div>
+        )}
       </div>
 
       <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
