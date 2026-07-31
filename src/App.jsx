@@ -11,7 +11,8 @@ import {
   ChevronDown, Filter, ArrowUp, ArrowDown, CheckCircle2, Clock,
   Circle, Search, AlertTriangle, ChevronUp, MessageSquareText, Copy, Sparkles, Wand2, Hash, FileText,
   CalendarDays, ChevronLeft, ChevronRight, Bell, Ban, RotateCcw, Pencil, Trash2, Smile,
-  Bold, Italic, CaseUpper, CaseLower, CaseSensitive, ShieldCheck, Maximize2, BarChart3, Printer, Grid2X2, PauseCircle, ExternalLink, Image as ImageIcon, Palette, StickyNote
+  Bold, Italic, CaseUpper, CaseLower, CaseSensitive, ShieldCheck, Maximize2, BarChart3, Printer, Grid2X2, PauseCircle, ExternalLink, Image as ImageIcon, Palette, StickyNote,
+  PartyPopper, ListChecks, Users, Award, CheckSquare, Square
 } from "lucide-react";
 
 /* ---------------------------------- DATA ---------------------------------- */
@@ -57,6 +58,11 @@ const PURPOSES = ["Ads", "YouTube", "TikTok", "Facebook/IG", "Website", "Other"]
 const POST_STATUSES = ["Pending", "Posted", "Cancelled", "Rescheduled", "Flagged", "Hold"];
 const POST_STATUS_COLOR = { "Pending": "#9AA39B", "Posted": "#146356", "Cancelled": "#C4544A", "Rescheduled": "#E8A33D", "Flagged": "#B0538A", "Hold": "#3E7CB1" };
 const POST_STATUS_ICON = { "Pending": Circle, "Posted": CheckCircle2, "Cancelled": Ban, "Rescheduled": RotateCcw, "Flagged": AlertTriangle, "Hold": PauseCircle };
+
+const EVENT_TYPES = ["Zoom Webinar", "Facebook", "TikTok Webinar", "Partner Event", "Face to Face", "Other"];
+const EVENT_STATUSES = ["Upcoming", "Rescheduled", "Cancelled", "Completed"];
+const EVENT_STATUS_COLOR = { "Upcoming": "#3E7CB1", "Rescheduled": "#E8A33D", "Cancelled": "#C4544A", "Completed": "#146356" };
+const EVENT_STATUS_ICON = { "Upcoming": Circle, "Rescheduled": RotateCcw, "Cancelled": Ban, "Completed": CheckCircle2 };
 
 const BENCHMARKS = {
   Facebook:  { growth: [[0.5,"Low"],[1,"Healthy"],[2,"Good"],[3,"Very Good"],[Infinity,"Excellent"]], engagement: [[0.5,"Low"],[1,"Average"],[2,"Strong"],[3,"Excellent"],[Infinity,"Top-Performing"]] },
@@ -195,6 +201,7 @@ export default function RiseSocMedTracker() {
   const [theme, setTheme] = useState({ bg: "#F5F6F1", accent: "#146356", sidebar: "#0E2B27" });
   const [themeModalOpen, setThemeModalOpen] = useState(false);
   const [notes, setNotes] = useState([]);
+  const [events, setEvents] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [pendingSaves, setPendingSaves] = useState(0);
 
@@ -218,7 +225,7 @@ export default function RiseSocMedTracker() {
     if (!user) return;
     (async () => {
       try {
-        const [rSnap, cSnap, tSnap, capSnap, tplSnap, svcSnap, chSnap, favSnap, themeSnap, notesSnap] = await Promise.all([
+        const [rSnap, cSnap, tSnap, capSnap, tplSnap, svcSnap, chSnap, favSnap, themeSnap, notesSnap, eventsSnap] = await Promise.all([
           getDoc(doc(db, "riseSocMedData", "requests")),
           getDoc(doc(db, "riseSocMedData", "channelStats")),
           getDoc(doc(db, "riseSocMedData", "targets")),
@@ -229,6 +236,7 @@ export default function RiseSocMedTracker() {
           getDoc(doc(db, "riseSocMedData", "favicon")),
           getDoc(doc(db, "riseSocMedData", "theme")),
           getDoc(doc(db, "riseSocMedData", "notes")),
+          getDoc(doc(db, "riseSocMedData", "events")),
         ]);
         if (rSnap.exists()) setRequests(rSnap.data().value || []);
         if (cSnap.exists()) setChannelStats(cSnap.data().value || {});
@@ -244,6 +252,7 @@ export default function RiseSocMedTracker() {
         if (favSnap.exists()) setFaviconUrl(favSnap.data().value || "");
         if (themeSnap.exists()) setTheme(themeSnap.data().value || { bg: "#F5F6F1", accent: "#146356", sidebar: "#0E2B27" });
         if (notesSnap.exists()) setNotes(notesSnap.data().value || []);
+        if (eventsSnap.exists()) setEvents(eventsSnap.data().value || []);
       } finally { setLoaded(true); }
     })();
   }, [user?.uid]);
@@ -278,6 +287,7 @@ export default function RiseSocMedTracker() {
   useEffect(() => { if (loaded && user) saveDoc("favicon", faviconUrl); }, [faviconUrl, loaded, user]);
   useEffect(() => { if (loaded && user) saveDoc("theme", theme); }, [theme, loaded, user]);
   useEffect(() => { if (loaded && user) saveDoc("notes", notes); }, [notes, loaded, user]);
+  useEffect(() => { if (loaded && user) saveDoc("events", events); }, [events, loaded, user]);
 
   // Warn before leaving/refreshing if a save is still in flight — this is the actual
   // fix for "my entry vanished after I refreshed": the save was still traveling over
@@ -372,6 +382,7 @@ export default function RiseSocMedTracker() {
     { id: "captions",  label: "Captions",  icon: MessageSquareText },
     { id: "scheduler", label: "Scheduler", icon: CalendarDays },
     { id: "reports",   label: "Reports",   icon: BarChart3 },
+    { id: "events",    label: "Events",    icon: PartyPopper },
   ];
 
   const todayStr = localDateStr(new Date());
@@ -379,9 +390,17 @@ export default function RiseSocMedTracker() {
   const allMajorServices = extraServices.major;
   const allMinorServices = extraServices.minor;
   const allServicesList = [...allMajorServices, ...allMinorServices];
-  const reminders = requests
-    .filter(r => r.scheduledDate && r.scheduledDate <= todayStr && r.status !== "Completed")
-    .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate));
+  const reminders = [
+    ...requests
+      .filter(r => r.scheduledDate && r.scheduledDate <= todayStr && r.status !== "Completed")
+      .map(r => ({ id: r.id, title: r.title, date: r.scheduledDate, kind: "post" })),
+    ...notes
+      .filter(n => n.reminderDate && n.reminderDate <= todayStr)
+      .map(n => ({ id: n.id, title: n.text.slice(0, 60), date: n.reminderDate, kind: "note" })),
+    ...events
+      .filter(e => e.eventDate && e.eventDate <= todayStr && e.status !== "Completed" && e.status !== "Cancelled")
+      .map(e => ({ id: e.id, title: e.title, date: e.eventDate, kind: "event" })),
+  ].sort((a, b) => a.date.localeCompare(b.date));
 
   return (
     <div className="app-shell" style={{ display: "flex", minHeight: "100vh", fontFamily: "'Inter',sans-serif", background: "var(--app-bg)", color: "#0E2B27" }}>
@@ -447,12 +466,13 @@ export default function RiseSocMedTracker() {
               {reminders.length === 0 ? (
                 <div style={{ fontSize: 11.5, color: "#9AA39B" }}>Nothing due or overdue.</div>
               ) : reminders.map(r => {
-                const overdue = r.scheduledDate < todayStr;
+                const overdue = r.date < todayStr;
+                const kindLabel = r.kind === "post" ? "Scheduled post" : r.kind === "event" ? "Event" : "Note";
                 return (
-                  <div key={r.id} style={{ borderBottom: "1px solid #EEF0EC", padding: "7px 0" }}>
+                  <div key={`${r.kind}-${r.id}`} style={{ borderBottom: "1px solid #EEF0EC", padding: "7px 0" }}>
                     <div style={{ fontSize: 11.5, fontWeight: 600 }}>{r.title}</div>
                     <div style={{ fontSize: 10.5, color: overdue ? "#C4544A" : "#E8A33D", fontWeight: 600 }}>
-                      {overdue ? "Overdue" : "Due today"} · {r.scheduledDate}
+                      {kindLabel} · {overdue ? "Overdue" : "Due today"} · {r.date}
                     </div>
                   </div>
                 );
@@ -500,8 +520,9 @@ export default function RiseSocMedTracker() {
         {tab === "scheduler" && <Scheduler requests={requests} setRequests={setRequests} captions={captions} setCaptions={setCaptions} templates={templates} setTemplates={setTemplates}
           targets={targets} setTargets={setTargets} user={user} notes={notes} setNotes={setNotes}
           majorServices={allMajorServices} minorServices={allMinorServices} extraServices={extraServices} setExtraServices={setExtraServices} isAdmin={isAdmin} />}
-        {tab === "reports" && <Reports requests={requests} channelStats={channelStats} targets={targets} captions={captions}
+        {tab === "reports" && <Reports requests={requests} channelStats={channelStats} targets={targets} captions={captions} events={events}
           majorServices={allMajorServices} minorServices={allMinorServices} allServicesList={allServicesList} extraServices={extraServices} />}
+        {tab === "events" && <Events events={events} setEvents={setEvents} majorServices={allMajorServices} minorServices={allMinorServices} />}
       </div>
     </div>
   );
@@ -1848,7 +1869,7 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
               <div key={d} style={{ background: "#F5F6F1", padding: "6px 8px", fontSize: 10.5, fontWeight: 700, color: "#5B675F" }}>{d}</div>
             ))}
             {monthGrid.map((d, i) => {
-              if (!d) return <div key={i} style={{ background: "#fff", minHeight: 84 }} />;
+              if (!d) return <div key={i} style={{ background: "#fff", minHeight: 118 }} />;
               const key = fmt(d);
               const items = byDate[key] || [];
               const isToday = key === todayStr;
@@ -1856,7 +1877,7 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
               const clickable = items.length > 0 || !past;
               return (
                 <button key={i} disabled={!clickable} onClick={() => { if (items.length) setSelectedDay(key); else if (!past) setNewModalDate(key); }} style={{
-                  background: past ? "#FAFAF8" : "#fff", minHeight: 84, padding: 6, textAlign: "left", border: "none", cursor: clickable ? "pointer" : "default",
+                  background: past ? "#FAFAF8" : "#fff", minHeight: 118, padding: 6, textAlign: "left", border: "none", cursor: clickable ? "pointer" : "default",
                   display: "flex", flexDirection: "column", gap: 3, opacity: past && items.length === 0 ? 0.5 : 1,
                 }}>
                   <span style={{
@@ -1864,7 +1885,7 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
                     background: isToday ? "#146356" : "transparent", width: 18, height: 18, borderRadius: "50%",
                     display: "flex", alignItems: "center", justifyContent: "center",
                   }}>{d.getDate()}</span>
-                  {items.slice(0, 3).map(r => {
+                  {items.slice(0, 5).map(r => {
                     const svc = primaryService(r.services, extraServices.major);
                     return (
                       <div key={r.id} style={{ fontSize: 9.5, background: svc.color + "22", color: svc.color, borderRadius: 4, padding: "1px 4px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={svc.name}>
@@ -1872,7 +1893,7 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
                       </div>
                     );
                   })}
-                  {items.length > 3 && <div style={{ fontSize: 9.5, color: "#9AA39B" }}>+{items.length - 3} more</div>}
+                  {items.length > 5 && <div style={{ fontSize: 9.5, color: "#9AA39B" }}>+{items.length - 5} more</div>}
                 </button>
               );
             })}
@@ -1887,7 +1908,7 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
               const isToday = key === todayStr;
               const past = isPast(key);
               return (
-                <div key={key} style={{ border: `1px solid ${isToday ? "#146356" : "#E3E6E0"}`, borderRadius: 8, padding: 8, minHeight: 220, background: past ? "#FAFAF8" : "#fff" }}>
+                <div key={key} style={{ border: `1px solid ${isToday ? "#146356" : "#E3E6E0"}`, borderRadius: 8, padding: 8, minHeight: 300, maxHeight: 340, overflowY: "auto", background: past ? "#FAFAF8" : "#fff" }}>
                   <div style={{ fontSize: 10.5, fontWeight: 700, color: isToday ? "#146356" : (past ? "#9AA39B" : "#5B675F"), marginBottom: 6 }}>
                     {d.toLocaleDateString("en-US", { weekday: "short", day: "numeric" })}
                   </div>
@@ -2098,11 +2119,12 @@ function NotesBoard({ notes, setNotes, user }) {
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [draftReminder, setDraftReminder] = useState("");
 
   const addNote = () => {
     if (!draftText.trim()) return;
-    setNotes(ns => [...ns, { id: uid(), text: draftText.trim(), color: draftColor, by: user?.email || "", date: localDateStr(new Date()) }]);
-    setDraftText(""); setDraftColor(NOTE_COLORS[0]); setAdding(false);
+    setNotes(ns => [...ns, { id: uid(), text: draftText.trim(), color: draftColor, by: user?.email || "", date: localDateStr(new Date()), reminderDate: draftReminder || "" }]);
+    setDraftText(""); setDraftColor(NOTE_COLORS[0]); setDraftReminder(""); setAdding(false);
   };
   const saveEdit = (id) => {
     setNotes(ns => ns.map(n => n.id === id ? { ...n, text: editText.trim() } : n));
@@ -2119,13 +2141,15 @@ function NotesBoard({ notes, setNotes, user }) {
       {adding && (
         <Card style={{ marginBottom: 16 }}>
           <RichCaptionField value={draftText} onChange={setDraftText} placeholder="Write a note for the team..." rows={3} />
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
             <span style={{ fontSize: 11, color: "#5B675F", fontWeight: 600 }}>Color:</span>
             {NOTE_COLORS.map(c => (
               <button key={c} onClick={() => setDraftColor(c)} style={{
                 width: 20, height: 20, borderRadius: "50%", background: c, border: draftColor === c ? "2px solid #0E2B27" : "1px solid #D8DDD5", padding: 0,
               }} />
             ))}
+            <span style={{ fontSize: 11, color: "#5B675F", fontWeight: 600, marginLeft: 8 }}>Remind on:</span>
+            <input type="date" value={draftReminder} onChange={e => setDraftReminder(e.target.value)} style={{ ...inputStyle, fontSize: 11, padding: "4px 8px" }} />
             <div style={{ flex: 1 }} />
             <button onClick={addNote} disabled={!draftText.trim()} style={{ ...primaryBtn, opacity: !draftText.trim() ? 0.5 : 1 }}>Save Note</button>
             <button onClick={() => setAdding(false)} style={{ ...pillBtn(false), padding: "8px 14px" }}>Cancel</button>
@@ -2150,6 +2174,11 @@ function NotesBoard({ notes, setNotes, user }) {
               ) : (
                 <>
                   <div style={{ fontSize: 12.5, color: "#2A2A2A", whiteSpace: "pre-wrap", flex: 1, marginBottom: 10 }}>{n.text}</div>
+                  {n.reminderDate && (
+                    <div style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 9.5, fontWeight: 700, color: "#0E2B27", background: "rgba(255,255,255,0.5)", borderRadius: 8, padding: "2px 7px", marginBottom: 8, width: "fit-content" }}>
+                      <Bell size={9} /> {n.reminderDate}
+                    </div>
+                  )}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div style={{ fontSize: 9.5, color: "rgba(0,0,0,0.5)" }}>{n.by && `${n.by.split("@")[0]} · `}{n.date}</div>
                     <div style={{ display: "flex", gap: 6 }}>
@@ -2533,7 +2562,7 @@ function TemplateEditModal({ template, onClose, onSave }) {
 
 /* ---------------------------------- REPORTS ---------------------------------- */
 
-function Reports({ requests, channelStats, targets, captions, majorServices, minorServices, allServicesList, extraServices }) {
+function Reports({ requests, channelStats, targets, captions, events = [], majorServices, minorServices, allServicesList, extraServices }) {
   const [periodType, setPeriodType] = useState("month");
   const [cursor, setCursor] = useState(new Date());
   const [customStart, setCustomStart] = useState("");
@@ -2551,6 +2580,33 @@ function Reports({ requests, channelStats, targets, captions, majorServices, min
   });
 
   const requestsInRange = useMemo(() => requests.filter(r => r.dateLogged >= start && r.dateLogged <= end), [requests, start, end]);
+  const eventsInRange = useMemo(() => events.filter(e => e.eventDate >= start && e.eventDate <= end), [events, start, end]);
+  const eventsByService = useMemo(() => {
+    const counts = {};
+    eventsInRange.forEach(e => e.services.forEach(s => { counts[s] = (counts[s] || 0) + 1; }));
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 10).map(([name, count]) => ({ name, count }));
+  }, [eventsInRange]);
+  const eventsByType = useMemo(() => {
+    const counts = {}; const ratings = {};
+    eventsInRange.forEach(e => {
+      const t = e.eventType === "Other" ? (e.customEventType || "Other") : e.eventType;
+      counts[t] = (counts[t] || 0) + 1;
+      const r = eventRating(e);
+      if (r !== null) { ratings[t] = ratings[t] || []; ratings[t].push(r); }
+    });
+    return Object.entries(counts).map(([name, count]) => ({
+      name, count,
+      avgRating: ratings[name]?.length ? ratings[name].reduce((s, r) => s + r, 0) / ratings[name].length : null,
+    })).sort((a, b) => b.count - a.count);
+  }, [eventsInRange]);
+  const cumulativeEventRating = useMemo(() => {
+    const rated = eventsInRange.map(eventRating).filter(r => r !== null);
+    return rated.length ? rated.reduce((s, r) => s + r, 0) / rated.length : null;
+  }, [eventsInRange]);
+  const topEvents = useMemo(() =>
+    [...eventsInRange].map(e => ({ ...e, rating: eventRating(e) })).filter(e => e.rating !== null).sort((a, b) => b.rating - a.rating).slice(0, 5)
+  , [eventsInRange]);
+
   const scheduledInRange = useMemo(() => requests.filter(r => r.scheduledDate && r.scheduledDate >= start && r.scheduledDate <= end), [requests, start, end]);
 
   const totalRequests = requestsInRange.length;
@@ -2787,6 +2843,59 @@ function Reports({ requests, channelStats, targets, captions, majorServices, min
         )}
         <div style={{ fontSize: 10.5, color: "#9AA39B", marginTop: 10 }}>Goals are set per week/month individually — compare against the actual count for context, since the report range may span more or less than one goal period.</div>
       </Card>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14, margin: "16px 0" }}>
+        <StatCard label="Events This Period" value={eventsInRange.length} />
+        <StatCard label="Avg. Attendance Rating (Cumulative)" value={cumulativeEventRating === null ? "—" : `${cumulativeEventRating.toFixed(1)}%`} />
+        <StatCard label="Event Types Represented" value={eventsByType.length} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+        <FlexibleChart title="Events per Service" data={eventsByService} color="#B0538A" empty="No events logged in this period." />
+        <FlexibleChart title="Events per Type" data={eventsByType.map(t => ({ name: t.name, count: t.count }))} color="#3E7CB1" empty="No events logged in this period." defaultType="pie" />
+      </div>
+
+      <Card title="Attendance Rating by Event Type" style={{ marginBottom: 16 }}>
+        {eventsByType.length === 0 ? <Empty text="No events with results logged in this period." /> : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+            <thead><tr style={{ textAlign: "left", color: "#5B675F", borderBottom: "1px solid #E3E6E0" }}>
+              <th style={th}>Event Type</th><th style={th}>Events</th><th style={th}>Avg. Attendance Rating</th>
+            </tr></thead>
+            <tbody>
+              {eventsByType.map(t => (
+                <tr key={t.name} style={{ borderBottom: "1px solid #EEF0EC" }}>
+                  <td style={td}>{t.name}</td>
+                  <td style={td} className="mono">{t.count}</td>
+                  <td style={td} className="mono">{t.avgRating === null ? "—" : `${t.avgRating.toFixed(1)}%`}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
+
+      <Card title="Most Successful Events" style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 10.5, color: "#9AA39B", marginBottom: 10 }}>Ranked by attendance rating (registrations vs. actual attendance) — the ranking metric can change later if a different measure of success is preferred.</div>
+        {topEvents.length === 0 ? <Empty text="No events with results logged in this period." /> : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+            <thead><tr style={{ textAlign: "left", color: "#5B675F", borderBottom: "1px solid #E3E6E0" }}>
+              <th style={th}>#</th><th style={th}>Event</th><th style={th}>Type</th><th style={th}>Date</th><th style={th}>Reg. / Attend.</th><th style={th}>Rating</th>
+            </tr></thead>
+            <tbody>
+              {topEvents.map((e, i) => (
+                <tr key={e.id} style={{ borderBottom: "1px solid #EEF0EC" }}>
+                  <td style={td}>{i === 0 ? <Award size={14} color="#E8A33D" /> : i + 1}</td>
+                  <td style={td}>{e.title}</td>
+                  <td style={td}>{e.eventType === "Other" ? e.customEventType : e.eventType}</td>
+                  <td style={td} className="mono">{e.eventDate}</td>
+                  <td style={td} className="mono">{e.attendance}/{e.registrations}</td>
+                  <td style={{ ...td, fontWeight: 700, color: "#146356" }} className="mono">{e.rating.toFixed(1)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Card>
     </div>
   );
 }
@@ -2928,6 +3037,335 @@ function FlexibleChart({ title, data, color = "#146356", empty, defaultType = "b
         </ResponsiveContainer>
       )}
     </Card>
+  );
+}
+
+/* ---------------------------------- EVENTS ---------------------------------- */
+
+function eventRating(ev) {
+  if (!ev.registrations || !ev.attendance) return null;
+  return (ev.attendance / ev.registrations) * 100;
+}
+
+function Events({ events, setEvents, majorServices, minorServices }) {
+  const [open, setOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState(null);
+  const [detailEvent, setDetailEvent] = useState(null);
+  const [search, setSearch] = useState("");
+  const [filterType, setFilterType] = useState("All");
+
+  const filtered = events.filter(e =>
+    (filterType === "All" || e.eventType === filterType) &&
+    (e.title.toLowerCase().includes(search.toLowerCase()) || (e.approvedBy || "").toLowerCase().includes(search.toLowerCase()))
+  ).sort((a, b) => b.eventDate.localeCompare(a.eventDate));
+
+  const totalEvents = events.length;
+  const upcoming = events.filter(e => e.status === "Upcoming").length;
+  const completed = events.filter(e => e.status === "Completed").length;
+  const rated = events.map(eventRating).filter(r => r !== null);
+  const avgRating = rated.length ? rated.reduce((s, r) => s + r, 0) / rated.length : null;
+
+  const saveEvent = (ev) => {
+    setEvents(es => es.some(x => x.id === ev.id) ? es.map(x => x.id === ev.id ? ev : x) : [...es, ev]);
+    setOpen(false); setEditingEvent(null);
+    if (detailEvent?.id === ev.id) setDetailEvent(ev);
+  };
+  const removeEvent = (id) => { setEvents(es => es.filter(e => e.id !== id)); setDetailEvent(null); };
+
+  return (
+    <div>
+      <Header title="Events" sub="Log, schedule, and track the results of webinars and events" action={
+        <button onClick={() => { setEditingEvent(null); setOpen(true); }} style={primaryBtn}><Plus size={15} /> New Event</button>
+      } />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 18 }}>
+        <StatCard label="Total Events" value={totalEvents} />
+        <StatCard label="Upcoming" value={upcoming} accent="#3E7CB1" />
+        <StatCard label="Completed" value={completed} accent="#146356" />
+        <StatCard label="Avg. Attendance Rating" value={avgRating === null ? "—" : `${avgRating.toFixed(1)}%`} />
+      </div>
+
+      <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+        <div style={{ position: "relative", flex: 1 }}>
+          <Search size={14} style={{ position: "absolute", left: 10, top: 10, color: "#9AA39B" }} />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by title or coordinator..." style={{ ...inputStyle, paddingLeft: 30, width: "100%" }} />
+        </div>
+        <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ ...inputStyle, width: 180 }}>
+          <option>All</option>{EVENT_TYPES.map(t => <option key={t}>{t}</option>)}
+        </select>
+      </div>
+
+      {filtered.length === 0 ? <Card><Empty text="No events logged yet." /></Card> : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }}>
+          {filtered.map(ev => {
+            const rating = eventRating(ev);
+            const StatusIcon = EVENT_STATUS_ICON[ev.status];
+            return (
+              <button key={ev.id} onClick={() => setDetailEvent(ev)} style={{ textAlign: "left", background: "#fff", border: "1px solid #E3E6E0", borderRadius: 10, padding: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{ev.title}</div>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, color: EVENT_STATUS_COLOR[ev.status], background: EVENT_STATUS_COLOR[ev.status] + "1A", padding: "2px 8px", borderRadius: 10, display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                    <StatusIcon size={10} /> {ev.status}
+                  </span>
+                </div>
+                <div style={{ fontSize: 11, color: "#5B675F", marginBottom: 8 }}>{ev.eventType} · {ev.eventDate}</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 10 }}>
+                  {ev.services.slice(0, 3).map(s => <span key={s} style={tagStyle}>{s}</span>)}
+                  {ev.services.length > 3 && <span style={tagStyle}>+{ev.services.length - 3}</span>}
+                </div>
+                {rating !== null ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11.5 }}>
+                    <Users size={12} color="#5B675F" /> <span className="mono">{ev.attendance}/{ev.registrations}</span>
+                    <span style={{ fontWeight: 700, color: rating >= 70 ? "#146356" : rating >= 40 ? "#E8A33D" : "#C4544A" }}>{rating.toFixed(0)}%</span>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: "#9AA39B" }}>No results logged yet</div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {open && (
+        <EventModal
+          editing={editingEvent}
+          majorServices={majorServices} minorServices={minorServices}
+          onClose={() => { setOpen(false); setEditingEvent(null); }}
+          onSave={saveEvent}
+        />
+      )}
+
+      {detailEvent && !open && (
+        <EventDetailModal
+          event={detailEvent}
+          onClose={() => setDetailEvent(null)}
+          onEdit={() => { setEditingEvent(detailEvent); setOpen(true); }}
+          onSave={saveEvent}
+          onRemove={() => removeEvent(detailEvent.id)}
+        />
+      )}
+    </div>
+  );
+}
+
+function RequirementsChecklist({ requirements, setRequirements }) {
+  const [newItem, setNewItem] = useState("");
+  const addItem = () => {
+    if (!newItem.trim()) return;
+    setRequirements(r => [...r, { id: uid(), text: newItem.trim(), done: false }]);
+    setNewItem("");
+  };
+  const toggle = (id) => setRequirements(r => r.map(x => x.id === id ? { ...x, done: !x.done } : x));
+  const remove = (id) => setRequirements(r => r.filter(x => x.id !== id));
+
+  return (
+    <div>
+      {requirements.map(item => (
+        <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0" }}>
+          <button onClick={() => toggle(item.id)} style={{ border: "none", background: "transparent", color: item.done ? "#146356" : "#9AA39B", display: "flex" }}>
+            {item.done ? <CheckSquare size={15} /> : <Square size={15} />}
+          </button>
+          <span style={{ fontSize: 12.5, flex: 1, textDecoration: item.done ? "line-through" : "none", color: item.done ? "#9AA39B" : "#0E2B27" }}>{item.text}</span>
+          <button onClick={() => remove(item.id)} style={{ border: "none", background: "transparent", color: "#C4544A" }}><X size={13} /></button>
+        </div>
+      ))}
+      <div style={{ display: "flex", gap: 6, marginTop: requirements.length ? 8 : 0 }}>
+        <input value={newItem} onChange={e => setNewItem(e.target.value)} onKeyDown={e => e.key === "Enter" && addItem()} placeholder="Add a requirement..." style={{ ...inputStyle, flex: 1, fontSize: 12.5 }} />
+        <button onClick={addItem} style={{ ...pillBtn(false), padding: "6px 12px" }}><Plus size={13} /></button>
+      </div>
+    </div>
+  );
+}
+
+function EventModal({ editing, onClose, onSave, majorServices, minorServices }) {
+  const [title, setTitle] = useState(editing?.title || "");
+  const [eventType, setEventType] = useState(editing?.eventType || EVENT_TYPES[0]);
+  const [customEventType, setCustomEventType] = useState(editing?.customEventType || "");
+  const [channel, setChannel] = useState(editing?.channel || "");
+  const [serviceType, setServiceType] = useState("major");
+  const [services, setServices] = useState(editing?.services || []);
+  const [approvedBy, setApprovedBy] = useState(editing?.approvedBy || "");
+  const [eventDate, setEventDate] = useState(editing?.eventDate || "");
+  const [requirements, setRequirements] = useState(editing?.requirements || []);
+  const [referenceLink, setReferenceLink] = useState(editing?.referenceLink || "");
+  const [notes, setNotes] = useState(editing?.notes || "");
+  const list = serviceType === "major" ? majorServices : minorServices;
+
+  const toggleService = (s) => setServices(cur => cur.includes(s) ? cur.filter(x => x !== s) : [...cur, s]);
+
+  const submit = () => {
+    let status = editing?.status || "Upcoming";
+    if (editing && editing.eventDate && eventDate !== editing.eventDate && status === "Upcoming") status = "Rescheduled";
+    onSave({
+      id: editing?.id || uid(), title, eventType, customEventType: eventType === "Other" ? customEventType : "",
+      channel, services, approvedBy, eventDate, requirements, referenceLink, notes, status,
+      registrations: editing?.registrations ?? null, attendance: editing?.attendance ?? null,
+      dateLogged: editing?.dateLogged || localDateStr(new Date()),
+    });
+  };
+
+  return (
+    <div style={overlay}>
+      <div style={{ ...modal, width: 560 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>{editing ? "Edit Event" : "New Event"}</div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
+        </div>
+
+        <label style={label}>Title</label>
+        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. NCLEX USA Info Session" style={{ ...inputStyle, width: "100%", marginBottom: 12 }} />
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <label style={label}>Event type</label>
+            <select value={eventType} onChange={e => setEventType(e.target.value)} style={{ ...inputStyle, width: "100%" }}>
+              {EVENT_TYPES.map(t => <option key={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={label}>Event date</label>
+            <input type="date" value={eventDate} onChange={e => setEventDate(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
+          </div>
+        </div>
+        {eventType === "Other" && (
+          <input value={customEventType} onChange={e => setCustomEventType(e.target.value)} placeholder="Specify event type..." style={{ ...inputStyle, width: "100%", marginBottom: 12 }} />
+        )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <div>
+            <label style={label}>Channel (optional)</label>
+            <select value={channel} onChange={e => setChannel(e.target.value)} style={{ ...inputStyle, width: "100%" }}>
+              <option value="">— none —</option>
+              {CHANNELS.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={label}>Approved / coordinated by</label>
+            <input value={approvedBy} onChange={e => setApprovedBy(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
+          </div>
+        </div>
+
+        <label style={label}>Service tags</label>
+        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          <button onClick={() => setServiceType("major")} style={pillBtn(serviceType === "major")}>Major</button>
+          <button onClick={() => setServiceType("minor")} style={pillBtn(serviceType === "minor")}>Minor</button>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 90, overflowY: "auto", border: "1px solid #E3E6E0", borderRadius: 8, padding: 8, marginBottom: 8 }}>
+          {list.map(s => <button key={s} onClick={() => toggleService(s)} style={pillBtn(services.includes(s))}>{s}</button>)}
+        </div>
+        <OtherTagPicker services={services} setServices={setServices} />
+
+        <label style={{ ...label, marginTop: 14 }}>Needed requirements</label>
+        <div style={{ background: "#F5F6F1", borderRadius: 8, padding: 10, marginBottom: 14 }}>
+          <RequirementsChecklist requirements={requirements} setRequirements={setRequirements} />
+        </div>
+
+        <label style={label}>Reference link (resources, registration form, etc.)</label>
+        <input value={referenceLink} onChange={e => setReferenceLink(e.target.value)} placeholder="https://..." style={{ ...inputStyle, width: "100%", marginBottom: 12 }} />
+
+        <label style={label}>Notes</label>
+        <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...inputStyle, width: "100%", marginBottom: 20, resize: "vertical" }} />
+
+        <button
+          disabled={!title || !eventDate}
+          onClick={submit}
+          style={{ ...primaryBtn, width: "100%", justifyContent: "center", opacity: (!title || !eventDate) ? 0.5 : 1 }}
+        >{editing ? "Save Changes" : "Save Event"}</button>
+      </div>
+    </div>
+  );
+}
+
+function EventDetailModal({ event, onClose, onEdit, onSave, onRemove }) {
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [registrations, setRegistrations] = useState(event.registrations ?? "");
+  const [attendance, setAttendance] = useState(event.attendance ?? "");
+  const ch = CHANNELS.find(c => c.id === event.channel);
+  const rating = eventRating({ ...event, registrations: Number(registrations) || null, attendance: Number(attendance) || null });
+  const StatusIcon = EVENT_STATUS_ICON[event.status];
+
+  const saveResults = () => {
+    onSave({ ...event, registrations: registrations === "" ? null : Number(registrations), attendance: attendance === "" ? null : Number(attendance) });
+  };
+  const changeStatus = (status) => onSave({ ...event, status });
+
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={{ ...modal, width: 560 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+          <div className="disp" style={{ fontSize: 19, fontWeight: 600 }}>{event.title}</div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: 12, color: "#5B675F", marginBottom: 14 }}>
+          {event.eventType === "Other" ? event.customEventType : event.eventType} {ch && `· ${ch.name}`} · {event.eventDate} {event.approvedBy && `· Approved by ${event.approvedBy}`}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+          <div>
+            <label style={label}>Status</label>
+            <select value={event.status} onChange={e => changeStatus(e.target.value)} style={{ ...inputStyle, width: "100%", color: EVENT_STATUS_COLOR[event.status], fontWeight: 700 }}>
+              {EVENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={label}>Services</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, paddingTop: 6 }}>
+              {event.services.map(s => <span key={s} style={tagStyle}>{s}</span>)}
+            </div>
+          </div>
+        </div>
+
+        {event.requirements?.length > 0 && (
+          <>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#5B675F", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.3 }}>Requirements</div>
+            <div style={{ background: "#F5F6F1", borderRadius: 8, padding: "6px 10px", marginBottom: 14 }}>
+              {event.requirements.map(r => (
+                <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 12.5 }}>
+                  {r.done ? <CheckSquare size={13} color="#146356" /> : <Square size={13} color="#9AA39B" />}
+                  <span style={{ textDecoration: r.done ? "line-through" : "none", color: r.done ? "#9AA39B" : "#0E2B27" }}>{r.text}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {event.referenceLink && (
+          <a href={event.referenceLink} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: "#146356", fontWeight: 600, wordBreak: "break-all", display: "block", marginBottom: 14 }}>{event.referenceLink} →</a>
+        )}
+        {event.notes && <div style={{ fontSize: 12.5, color: "#5B675F", marginBottom: 16, whiteSpace: "pre-wrap" }}>{event.notes}</div>}
+
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#5B675F", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.3 }}>Results</div>
+        <div style={{ background: "#F5F6F1", borderRadius: 8, padding: 12, marginBottom: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 10 }}>
+            <div>
+              <label style={label}>Registrations</label>
+              <input type="number" value={registrations} onChange={e => setRegistrations(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
+            </div>
+            <div>
+              <label style={label}>Actual attendance</label>
+              <input type="number" value={attendance} onChange={e => setAttendance(e.target.value)} style={{ ...inputStyle, width: "100%" }} />
+            </div>
+            <div>
+              <label style={label}>Attendance rating</label>
+              <div style={{ ...inputStyle, background: "#fff", fontWeight: 700, color: rating === null ? "#9AA39B" : rating >= 70 ? "#146356" : rating >= 40 ? "#E8A33D" : "#C4544A" }}>
+                {rating === null ? "—" : `${rating.toFixed(1)}%`}
+              </div>
+            </div>
+          </div>
+          <button onClick={saveResults} style={{ ...primaryBtn, fontSize: 12 }}><Users size={13} /> Save Results</button>
+        </div>
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={onEdit} style={{ ...primaryBtn, flex: 1, justifyContent: "center" }}><Pencil size={13} /> Edit / Reschedule</button>
+          {!confirmRemove ? (
+            <button onClick={() => setConfirmRemove(true)} style={{ ...primaryBtn, flex: 1, justifyContent: "center", background: "#fff", color: "#C4544A", border: "1px solid #C4544A" }}><Trash2 size={13} /> Remove</button>
+          ) : (
+            <button onClick={onRemove} style={{ ...primaryBtn, flex: 1, justifyContent: "center", background: "#C4544A" }}>Confirm remove?</button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
