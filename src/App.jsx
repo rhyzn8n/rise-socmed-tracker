@@ -701,7 +701,12 @@ function Login() {
 
 function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERVICES }) {
   const currentMonth = localMonthStr(new Date());
-  const monthRequests = useMemo(() => requests.filter(r => r.dateLogged.slice(0, 7) === currentMonth), [requests, currentMonth]);
+  // Coverage counts a service as covered only once something for it has actually been
+  // POSTED (via the Scheduler, status = "Posted") within the period — not just requested
+  // or scheduled. Uses scheduledDate, not dateLogged, since "covered" means "went out."
+  const monthPostedRequests = useMemo(() =>
+    requests.filter(r => r.scheduledDate && r.scheduledDate.slice(0, 7) === currentMonth && r.postStatus === "Posted")
+  , [requests, currentMonth]);
 
   const byService = useMemo(() => {
     const counts = {};
@@ -712,12 +717,12 @@ function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERV
   const coverage = useMemo(() => {
     const counts = {};
     allServicesList.forEach(s => { counts[s] = 0; });
-    monthRequests.forEach(r => r.services.forEach(s => { if (counts[s] !== undefined) counts[s] += 1; }));
+    monthPostedRequests.forEach(r => r.services.forEach(s => { if (counts[s] !== undefined) counts[s] += 1; }));
     const list = Object.entries(counts).map(([name, count]) => ({ name, count }));
     const flagged = list.filter(s => s.count === 0).sort((a, b) => a.name.localeCompare(b.name));
     const covered = list.filter(s => s.count > 0).sort((a, b) => b.count - a.count);
     return { flagged, covered, total: list.length };
-  }, [monthRequests]);
+  }, [monthPostedRequests, allServicesList]);
 
   const byCreative = useMemo(() => {
     const counts = {};
@@ -2652,6 +2657,10 @@ function Reports({ requests, channelStats, targets, captions, events = [], major
   });
 
   const requestsInRange = useMemo(() => requests.filter(r => r.dateLogged >= start && r.dateLogged <= end), [requests, start, end]);
+  // Coverage counts a service as covered only once something for it has actually been
+  // POSTED (via the Scheduler, status = "Posted") within the report range — not just
+  // requested. Uses scheduledDate, not dateLogged, since "covered" means "went out."
+  const postedInRange = useMemo(() => requests.filter(r => r.scheduledDate && r.scheduledDate >= start && r.scheduledDate <= end && r.postStatus === "Posted"), [requests, start, end]);
   const eventsInRange = useMemo(() => events.filter(e => e.eventDate >= start && e.eventDate <= end), [events, start, end]);
   const eventsByService = useMemo(() => {
     const counts = {};
@@ -2723,10 +2732,10 @@ function Reports({ requests, channelStats, targets, captions, events = [], major
 
   const coverage = useMemo(() => {
     const counts = {}; allServicesList.forEach(s => { counts[s] = 0; });
-    requestsInRange.forEach(r => r.services.forEach(s => { if (counts[s] !== undefined) counts[s] += 1; }));
+    postedInRange.forEach(r => r.services.forEach(s => { if (counts[s] !== undefined) counts[s] += 1; }));
     const list = Object.entries(counts).map(([name, count]) => ({ name, count }));
     return { flagged: list.filter(s => s.count === 0).sort((a, b) => a.name.localeCompare(b.name)), covered: list.filter(s => s.count > 0).sort((a, b) => b.count - a.count), total: list.length };
-  }, [requestsInRange, allServicesList]);
+  }, [postedInRange, allServicesList]);
 
   const channelPerf = useMemo(() => CHANNELS.map(ch => {
     const rows = (channelStats[ch.id] || []).filter(r => r.month >= start.slice(0, 7) && r.month <= end.slice(0, 7)).sort((a, b) => a.month.localeCompare(b.month));
