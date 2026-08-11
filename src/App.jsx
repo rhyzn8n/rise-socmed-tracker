@@ -133,6 +133,27 @@ function localMonthStr(d) {
   const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0");
   return `${y}-${m}`;
 }
+// Splits a month into simple 7-day blocks (day 1–7, 8–14, 15–21, 22–28, and a final
+// partial block for whatever's left, e.g. 29–30/31) — used so a "weekly" target can
+// show every week of the current month as its own progress bar, all against the same
+// goal, instead of just one rolling "current week" number.
+function getMonthWeeks(date) {
+  const year = date.getFullYear(), month = date.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const weeks = [];
+  let dayStart = 1, weekNum = 1;
+  while (dayStart <= daysInMonth) {
+    const dayEnd = Math.min(dayStart + 6, daysInMonth);
+    const pad = (n) => String(n).padStart(2, "0");
+    weeks.push({
+      label: `Week ${weekNum}`,
+      start: `${year}-${pad(month + 1)}-${pad(dayStart)}`,
+      end: `${year}-${pad(month + 1)}-${pad(dayEnd)}`,
+    });
+    dayStart += 7; weekNum += 1;
+  }
+  return weeks;
+}
 function aggregateChannelStats(rows, granularity) {
   if (granularity === "month") {
     return rows.map(r => ({ label: monthLabel(r.month), month: r.month, growthPct: r.growthPct, engagement30: r.engagement30, engagement15: r.engagement15, followers: r.followers }));
@@ -205,6 +226,8 @@ export default function RiseSocMedTracker() {
   const [restrictedAccess, setRestrictedAccess] = useState({ eventsOnly: [] });
   const [accessModalOpen, setAccessModalOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [pendingSaves, setPendingSaves] = useState(0);
 
   const [user, setUser] = useState(null);
@@ -223,8 +246,19 @@ export default function RiseSocMedTracker() {
   // object itself would re-trigger this reload mid-session and overwrite anything not
   // yet finished saving with the last Firestore snapshot — exactly the kind of "my
   // just-added entry vanished" bug this is guarding against.
+  //
+  // CRITICAL: `loaded` gates every save effect (`if (loaded && user) saveDoc(...)`).
+  // This used to be set in a `finally` block, meaning it went true even when the
+  // Promise.all below had FAILED and none of the setX() calls below ever ran — so a
+  // single transient read failure (network blip, momentary quota hiccup, anything)
+  // silently left every piece of state at its empty default, `loaded` became true
+  // anyway, and the save effects then happily wrote that empty state back over the
+  // real data in Firestore. This is the most likely explanation for a "everything got
+  // wiped, no clear trigger" incident. Fix: `loaded` (and therefore saving) is now
+  // ONLY ever set true inside the success path, never in a blanket `finally`.
   useEffect(() => {
     if (!user) return;
+    let cancelled = false;
     (async () => {
       try {
         const [rSnap, cSnap, tSnap, capSnap, tplSnap, svcSnap, chSnap, favSnap, themeSnap, notesSnap, eventsSnap, accessSnap] = await Promise.all([
@@ -241,6 +275,7 @@ export default function RiseSocMedTracker() {
           getDoc(doc(db, "riseSocMedData", "events")),
           getDoc(doc(db, "riseSocMedData", "restrictedAccess")),
         ]);
+        if (cancelled) return;
         if (rSnap.exists()) setRequests(rSnap.data().value || []);
         if (cSnap.exists()) setChannelStats(cSnap.data().value || {});
         if (tSnap.exists()) setTargets(tSnap.data().value || []);
@@ -257,9 +292,15 @@ export default function RiseSocMedTracker() {
         if (notesSnap.exists()) setNotes(notesSnap.data().value || []);
         if (eventsSnap.exists()) setEvents(eventsSnap.data().value || []);
         if (accessSnap.exists()) setRestrictedAccess(accessSnap.data().value || { eventsOnly: [] });
-      } finally { setLoaded(true); }
+        setLoadFailed(false);
+        setLoaded(true); // only reached on genuine success
+      } catch (err) {
+        console.error("Failed to load data from Firestore — refusing to enable saving:", err);
+        if (!cancelled) setLoadFailed(true); // loaded stays false: no saves can fire
+      }
     })();
-  }, [user?.uid]);
+    return () => { cancelled = true; };
+  }, [user?.uid, loadAttempt]);
 
   // Every persisted collection goes through this so we always know whether a save
   // is still in flight — used to warn before an accidental refresh/close mid-save.
@@ -383,6 +424,25 @@ export default function RiseSocMedTracker() {
   }
   if (!user) {
     return <Login />;
+  }
+  if (loadFailed && !loaded) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Inter',sans-serif", background: "#F5F6F1" }}>
+        <div style={{ background: "#fff", border: "1px solid #E3E6E0", borderRadius: 12, padding: 32, maxWidth: 420, textAlign: "center" }}>
+          <AlertTriangle size={28} color="#C4544A" style={{ marginBottom: 12 }} />
+          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Couldn't load your data</div>
+          <div style={{ fontSize: 13, color: "#5B675F", marginBottom: 20 }}>
+            This can happen from a brief connection hiccup. Nothing has been changed or saved — it's safe to try again.
+          </div>
+          <button onClick={() => { setLoadFailed(false); setLoadAttempt(a => a + 1); }} style={{ ...primaryBtn, width: "100%", justifyContent: "center" }}>
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (!loaded) {
+    return <div style={{ padding: 40, fontFamily: "'Inter',sans-serif", color: "#5B675F" }}>Loading your data…</div>;
   }
 
   const NAV = [
@@ -1391,21 +1451,29 @@ function Targets({ targets, setTargets, requests, majorServices = MAJOR_SERVICES
   const [editingTarget, setEditingTarget] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
 
-  const progressFor = (t) => {
-    const now = new Date();
-    const inPeriod = requests.filter(r => {
+  const countForRange = (t, startStr, endStr) => {
+    const inRange = requests.filter(r => {
       if (r.status !== "Completed") return false;
-      const d = new Date(r.dateLogged);
-      if (t.period === "week") {
-        const diffDays = (now - d) / 86400000;
-        return diffDays >= 0 && diffDays <= 7;
-      }
-      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+      return r.dateLogged >= startStr && r.dateLogged <= endStr;
     });
-    const count = t.scope === "channel"
-      ? inPeriod.filter(r => r.channel === t.target).length
-      : inPeriod.filter(r => r.services.includes(t.target)).length;
-    return count;
+    return t.scope === "channel"
+      ? inRange.filter(r => r.channel === t.target).length
+      : inRange.filter(r => r.services.includes(t.target)).length;
+  };
+
+  // Monthly targets: one straightforward progress bar for the current calendar month.
+  const monthProgressFor = (t) => {
+    const now = new Date();
+    const monthStart = `${localMonthStr(now)}-01`;
+    const monthEnd = localDateStr(new Date(now.getFullYear(), now.getMonth() + 1, 0));
+    return countForRange(t, monthStart, monthEnd);
+  };
+
+  // Weekly targets: broken into every week of the current month, each measured
+  // against the same goal — not just one rolling "current week" number.
+  const weeklyBreakdownFor = (t) => {
+    const weeks = getMonthWeeks(new Date());
+    return weeks.map(w => ({ ...w, count: countForRange(t, w.start, w.end) }));
   };
 
   const statusFor = (count, goal) => {
@@ -1426,19 +1494,26 @@ function Targets({ targets, setTargets, requests, majorServices = MAJOR_SERVICES
       {targets.length === 0 ? <Card><Empty text="No targets set yet. Add one to start tracking progress." /></Card> : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 14 }}>
           {targets.map(t => {
-            const count = progressFor(t);
-            const st = statusFor(count, t.goal);
-            const pct = Math.min(100, (count / t.goal) * 100);
             const name = t.scope === "channel" ? CHANNELS.find(c => c.id === t.target)?.name : t.target;
+            const isWeekly = t.period === "week";
+            const weeklyBreakdown = isWeekly ? weeklyBreakdownFor(t) : null;
+            const monthCount = !isWeekly ? monthProgressFor(t) : null;
+            const monthSt = !isWeekly ? statusFor(monthCount, t.goal) : null;
+            const monthPct = !isWeekly ? Math.min(100, (monthCount / t.goal) * 100) : null;
+            // Card-level badge: for weekly targets, reflect the CURRENT week's status specifically.
+            const now = new Date();
+            const currentWeek = isWeekly ? weeklyBreakdown.find(w => localDateStr(now) >= w.start && localDateStr(now) <= w.end) : null;
+            const cardSt = isWeekly ? (currentWeek ? statusFor(currentWeek.count, t.goal) : { label: "—", color: "#9AA39B" }) : monthSt;
+
             return (
               <Card key={t.id}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
                   <div>
                     <div style={{ fontSize: 13, fontWeight: 600 }}>{name}</div>
-                    <div style={{ fontSize: 11, color: "#5B675F", textTransform: "capitalize" }}>{t.scope} · per {t.period}</div>
+                    <div style={{ fontSize: 11, color: "#5B675F", textTransform: "capitalize" }}>{t.scope} · per {t.period} · goal {t.goal}</div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: st.color, background: st.color + "1A", padding: "3px 9px", borderRadius: 12 }}>{st.label}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: cardSt.color, background: cardSt.color + "1A", padding: "3px 9px", borderRadius: 12 }}>{isWeekly ? `This week: ${cardSt.label}` : cardSt.label}</span>
                     <button onClick={() => setEditingTarget(t)} style={{ border: "none", background: "transparent", color: "#146356" }}><Pencil size={13} /></button>
                     {confirmDeleteId === t.id ? (
                       <button onClick={() => removeTarget(t.id)} style={{ border: "none", background: "transparent", color: "#C4544A", fontSize: 10.5, fontWeight: 700 }}>Confirm?</button>
@@ -1447,13 +1522,37 @@ function Targets({ targets, setTargets, requests, majorServices = MAJOR_SERVICES
                     )}
                   </div>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 5 }}>
-                  <span className="mono">{count} / {t.goal} posts</span>
-                  <span style={{ color: "#5B675F" }}>{pct.toFixed(0)}%</span>
-                </div>
-                <div style={{ height: 7, background: "#EEF0EC", borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{ width: `${pct}%`, height: "100%", background: st.color, borderRadius: 4 }} />
-                </div>
+
+                {isWeekly ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {weeklyBreakdown.map(w => {
+                      const wSt = statusFor(w.count, t.goal);
+                      const wPct = Math.min(100, (w.count / t.goal) * 100);
+                      const isCurrent = currentWeek && w.label === currentWeek.label;
+                      return (
+                        <div key={w.label}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, marginBottom: 3 }}>
+                            <span style={{ fontWeight: isCurrent ? 700 : 500 }}>{w.label}{isCurrent && <span style={{ color: "#9AA39B", fontWeight: 500 }}> (current)</span>}</span>
+                            <span className="mono" style={{ color: "#5B675F" }}>{w.count} / {t.goal}</span>
+                          </div>
+                          <div style={{ height: 6, background: "#EEF0EC", borderRadius: 3, overflow: "hidden" }}>
+                            <div style={{ width: `${wPct}%`, height: "100%", background: wSt.color, borderRadius: 3 }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 5 }}>
+                      <span className="mono">{monthCount} / {t.goal} posts</span>
+                      <span style={{ color: "#5B675F" }}>{monthPct.toFixed(0)}%</span>
+                    </div>
+                    <div style={{ height: 7, background: "#EEF0EC", borderRadius: 4, overflow: "hidden" }}>
+                      <div style={{ width: `${monthPct}%`, height: "100%", background: monthSt.color, borderRadius: 4 }} />
+                    </div>
+                  </>
+                )}
               </Card>
             );
           })}
