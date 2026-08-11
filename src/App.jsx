@@ -12,7 +12,7 @@ import {
   Circle, Search, AlertTriangle, ChevronUp, MessageSquareText, Copy, Sparkles, Wand2, Hash, FileText,
   CalendarDays, ChevronLeft, ChevronRight, Bell, Ban, RotateCcw, Pencil, Trash2, Smile,
   Bold, Italic, CaseUpper, CaseLower, CaseSensitive, ShieldCheck, Maximize2, BarChart3, Printer, Grid2X2, PauseCircle, ExternalLink, Image as ImageIcon, Palette, StickyNote,
-  PartyPopper, ListChecks, Users, Award, CheckSquare, Square
+  PartyPopper, ListChecks, Users, Award, CheckSquare, Square, Download, Upload, DatabaseBackup
 } from "lucide-react";
 
 /* ---------------------------------- DATA ---------------------------------- */
@@ -225,6 +225,7 @@ export default function RiseSocMedTracker() {
   const [events, setEvents] = useState([]);
   const [restrictedAccess, setRestrictedAccess] = useState({ eventsOnly: [] });
   const [accessModalOpen, setAccessModalOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -413,6 +414,45 @@ export default function RiseSocMedTracker() {
     setChannelsVersion(v => v + 1);
   };
 
+  // Full data backup — an actual safety net independent of trusting the app's own
+  // save logic never breaks again. Firestore's free tier has no built-in backups.
+  const exportAllData = () => {
+    const snapshot = {
+      exportedAt: new Date().toISOString(),
+      exportedBy: user?.email || "",
+      requests, channelStats, targets, captions, templates,
+      extraServices, channelsList: CHANNELS, favicon: faviconUrl, theme, notes, events, restrictedAccess,
+    };
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `rise-socmed-backup-${localDateStr(new Date())}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const importAllData = (snapshot) => {
+    if (snapshot.requests) setRequests(snapshot.requests);
+    if (snapshot.channelStats) setChannelStats(snapshot.channelStats);
+    if (snapshot.targets) setTargets(snapshot.targets);
+    if (snapshot.captions) setCaptions(snapshot.captions);
+    if (snapshot.templates) setTemplates(snapshot.templates);
+    if (snapshot.extraServices) setExtraServices(snapshot.extraServices);
+    if (snapshot.channelsList?.length) {
+      CHANNELS.length = 0;
+      CHANNELS.push(...snapshot.channelsList);
+      setChannelsVersion(v => v + 1);
+    }
+    if (snapshot.favicon !== undefined) setFaviconUrl(snapshot.favicon);
+    if (snapshot.theme) setTheme(snapshot.theme);
+    if (snapshot.notes) setNotes(snapshot.notes);
+    if (snapshot.events) setEvents(snapshot.events);
+    if (snapshot.restrictedAccess) setRestrictedAccess(snapshot.restrictedAccess);
+  };
+
   // Restricted-access users only ever see the Events tab — this must live before the
   // early returns below since it's a hook, and hooks can't be called conditionally.
   const isAdminEarly = !!(user && ADMIN_EMAILS.includes(user.email));
@@ -511,6 +551,16 @@ export default function RiseSocMedTracker() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {isAdmin && (
+              <button onClick={exportAllData} title="Export all data as a backup file (Admin)" style={{ border: "none", background: "transparent", color: "#B7C4BF", padding: 2 }}>
+                <Download size={15} />
+              </button>
+            )}
+            {isAdmin && (
+              <button onClick={() => setImportModalOpen(true)} title="Import data from a backup file (Admin)" style={{ border: "none", background: "transparent", color: "#B7C4BF", padding: 2 }}>
+                <Upload size={15} />
+              </button>
+            )}
+            {isAdmin && (
               <button onClick={() => setAccessModalOpen(true)} title="Manage restricted access (Admin)" style={{ border: "none", background: "transparent", color: "#B7C4BF", padding: 2 }}>
                 <Users size={15} />
               </button>
@@ -587,6 +637,7 @@ export default function RiseSocMedTracker() {
       {faviconModalOpen && <FaviconModal currentUrl={faviconUrl} onSave={(url) => { setFaviconUrl(url); setFaviconModalOpen(false); }} onClose={() => setFaviconModalOpen(false)} />}
       {themeModalOpen && <ThemeModal current={theme} onSave={(t) => { setTheme(t); setThemeModalOpen(false); }} onClose={() => setThemeModalOpen(false)} />}
       {accessModalOpen && <AccessManagerModal current={restrictedAccess} onSave={(a) => { setRestrictedAccess(a); setAccessModalOpen(false); }} onClose={() => setAccessModalOpen(false)} />}
+      {importModalOpen && <ImportModal onClose={() => setImportModalOpen(false)} onImport={importAllData} />}
 
       {/* MAIN */}
       <div className="app-main" style={{ flex: 1, padding: "26px 32px", overflowY: "auto", minHeight: "100vh" }}>
@@ -613,6 +664,87 @@ export default function RiseSocMedTracker() {
 /* ---------------------------------- THEME (admin) ---------------------------------- */
 
 /* ---------------------------------- ACCESS MANAGEMENT (admin) ---------------------------------- */
+
+/* ---------------------------------- DATA BACKUP — IMPORT (admin) ---------------------------------- */
+
+function ImportModal({ onClose, onImport }) {
+  const [fileName, setFileName] = useState("");
+  const [parsed, setParsed] = useState(null);
+  const [error, setError] = useState("");
+  const [confirming, setConfirming] = useState(false);
+
+  const handleFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFileName(file.name);
+    setError(""); setParsed(null); setConfirming(false);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        setParsed(data);
+      } catch (err) {
+        setError("That file isn't valid JSON — make sure it's an unmodified export from this app.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const counts = parsed ? {
+    Requests: parsed.requests?.length ?? "—",
+    Captions: parsed.captions?.length ?? "—",
+    Targets: parsed.targets?.length ?? "—",
+    Events: parsed.events?.length ?? "—",
+    Notes: parsed.notes?.length ?? "—",
+    Channels: parsed.channelsList?.length ?? "—",
+  } : null;
+
+  return (
+    <div style={overlay}>
+      <div style={modal}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>Import Data <span style={{ fontSize: 11, fontWeight: 600, color: "#E8A33D", background: "#E8A33D1A", padding: "2px 8px", borderRadius: 10, marginLeft: 6 }}>Admin</span></div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, fontWeight: 700, color: "#C4544A", background: "#C4544A14", borderRadius: 8, padding: "10px 12px", marginBottom: 16 }}>
+          <AlertTriangle size={16} /> This replaces ALL current data with what's in the file. This cannot be undone.
+        </div>
+
+        <label style={label}>Backup file</label>
+        <input type="file" accept="application/json" onChange={handleFile} style={{ fontSize: 12.5, marginBottom: 14 }} />
+        {error && <div style={{ fontSize: 12, color: "#C4544A", marginBottom: 14 }}>{error}</div>}
+
+        {parsed && (
+          <div style={{ background: "#F5F6F1", borderRadius: 8, padding: 12, marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#5B675F", marginBottom: 8 }}>
+              {parsed.exportedAt ? `Exported ${new Date(parsed.exportedAt).toLocaleString()}${parsed.exportedBy ? ` by ${parsed.exportedBy}` : ""}` : "This file's contents:"}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
+              {Object.entries(counts).map(([k, v]) => (
+                <div key={k} style={{ fontSize: 11.5 }}><span className="mono" style={{ fontWeight: 700 }}>{v}</span> {k}</div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {!confirming ? (
+          <button disabled={!parsed} onClick={() => setConfirming(true)} style={{ ...primaryBtn, width: "100%", justifyContent: "center", opacity: !parsed ? 0.5 : 1, background: "#C4544A" }}>
+            Review & Restore
+          </button>
+        ) : (
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 10, textAlign: "center" }}>Replace all current data with this file?</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setConfirming(false)} style={{ ...pillBtn(false), flex: 1, padding: "10px 0", textAlign: "center" }}>Cancel</button>
+              <button onClick={() => { onImport(parsed); onClose(); }} style={{ ...primaryBtn, flex: 1, justifyContent: "center", background: "#C4544A" }}>Yes, Restore Now</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function AccessManagerModal({ current, onSave, onClose }) {
   const [eventsOnly, setEventsOnly] = useState(current.eventsOnly || []);
@@ -760,61 +892,101 @@ function Login() {
 /* ---------------------------------- DASHBOARD ---------------------------------- */
 
 function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERVICES }) {
-  const currentMonth = localMonthStr(new Date());
+  const [periodType, setPeriodType] = useState("month");
+  const [cursor, setCursor] = useState(new Date());
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+
+  const { start, end, label: periodLabel } = useMemo(() => getReportRange(periodType, cursor, customStart, customEnd), [periodType, cursor, customStart, customEnd]);
+  const shift = (amt) => setCursor(c => {
+    const d = new Date(c);
+    if (periodType === "week") d.setDate(d.getDate() + amt * 7);
+    else if (periodType === "quarter") d.setMonth(d.getMonth() + amt * 3);
+    else d.setMonth(d.getMonth() + amt);
+    return d;
+  });
+
+  const requestsInPeriod = useMemo(() => requests.filter(r => r.dateLogged >= start && r.dateLogged <= end), [requests, start, end]);
+
   // Coverage counts a service as covered only once something for it has actually been
   // POSTED (via the Scheduler, status = "Posted") within the period — not just requested
   // or scheduled. Uses scheduledDate, not dateLogged, since "covered" means "went out."
-  const monthPostedRequests = useMemo(() =>
-    requests.filter(r => r.scheduledDate && r.scheduledDate.slice(0, 7) === currentMonth && r.postStatus === "Posted")
-  , [requests, currentMonth]);
+  const postedInPeriod = useMemo(() =>
+    requests.filter(r => r.scheduledDate && r.scheduledDate >= start && r.scheduledDate <= end && r.postStatus === "Posted")
+  , [requests, start, end]);
 
   const byService = useMemo(() => {
     const counts = {};
-    requests.forEach(r => r.services.forEach(s => { counts[s] = (counts[s] || 0) + 1; }));
+    requestsInPeriod.forEach(r => r.services.forEach(s => { counts[s] = (counts[s] || 0) + 1; }));
     return Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, count]) => ({ name, count }));
-  }, [requests]);
+  }, [requestsInPeriod]);
 
   const coverage = useMemo(() => {
     const counts = {};
     allServicesList.forEach(s => { counts[s] = 0; });
-    monthPostedRequests.forEach(r => r.services.forEach(s => { if (counts[s] !== undefined) counts[s] += 1; }));
+    postedInPeriod.forEach(r => r.services.forEach(s => { if (counts[s] !== undefined) counts[s] += 1; }));
     const list = Object.entries(counts).map(([name, count]) => ({ name, count }));
     const flagged = list.filter(s => s.count === 0).sort((a, b) => a.name.localeCompare(b.name));
     const covered = list.filter(s => s.count > 0).sort((a, b) => b.count - a.count);
     return { flagged, covered, total: list.length };
-  }, [monthPostedRequests, allServicesList]);
+  }, [postedInPeriod, allServicesList]);
 
   const byCreative = useMemo(() => {
     const counts = {};
-    requests.forEach(r => { counts[r.creativeType] = (counts[r.creativeType] || 0) + 1; });
+    requestsInPeriod.forEach(r => { counts[r.creativeType] = (counts[r.creativeType] || 0) + 1; });
     return Object.entries(counts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
-  }, [requests]);
+  }, [requestsInPeriod]);
 
-  const completed = requests.filter(r => r.status === "Completed").length;
-  const inProgress = requests.filter(r => r.status === "In Progress").length;
-  const pending = requests.filter(r => r.status === "Pending").length;
+  const completed = requestsInPeriod.filter(r => r.status === "Completed").length;
+  const inProgress = requestsInPeriod.filter(r => r.status === "In Progress").length;
+  const pending = requestsInPeriod.filter(r => r.status === "Pending").length;
 
   return (
     <div>
-      <Header title="Dashboard" sub="Overview across all channels and services" />
+      <Header title="Dashboard" sub="Overview across all channels and services" action={
+        <div style={{ display: "flex", gap: 6 }}>
+          {["week", "month", "quarter", "custom"].map(p => (
+            <button key={p} onClick={() => setPeriodType(p)} style={pillBtn(periodType === p)}>{p[0].toUpperCase() + p.slice(1)}</button>
+          ))}
+        </div>
+      } />
+
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+        {periodType === "custom" ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <input type="date" value={customStart} onChange={e => setCustomStart(e.target.value)} style={inputStyle} />
+            <span style={{ fontSize: 12, color: "#5B675F" }}>to</span>
+            <input type="date" value={customEnd} onChange={e => setCustomEnd(e.target.value)} style={inputStyle} />
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => shift(-1)} style={navBtn}><ChevronLeft size={16} /></button>
+            <div style={{ fontSize: 13, fontWeight: 700, minWidth: 140, textAlign: "center" }}>{periodLabel}</div>
+            <button onClick={() => shift(1)} style={navBtn}><ChevronRight size={16} /></button>
+          </div>
+        )}
+        <div style={{ fontSize: 11, color: "#9AA39B" }}>Showing: {start} to {end}</div>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 22 }}>
-        <StatCard label="Total Requests" value={requests.length} />
+        <StatCard label="Total Requests" value={requestsInPeriod.length} />
         <StatCard label="Pending" value={pending} accent="#9AA39B" />
         <StatCard label="In Progress" value={inProgress} accent="#E8A33D" />
         <StatCard label="Completed" value={completed} accent="#146356" />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 16 }}>
-        <FlexibleChart title="Requests per Service" data={byService} color="#146356" empty="Log a request to see the breakdown." />
+        <FlexibleChart title="Requests per Service" data={byService} color="#146356" empty="No requests logged in this period." />
         <FlexibleChart title="Requests by Creative Type" data={byCreative} color="#E8A33D" empty="No creative type data yet." defaultType="pie" />
       </div>
 
       <Card style={{ marginTop: 16 }}>
         <CoverageLegend />
-        <CoverageGrid covered={coverage.covered} flagged={coverage.flagged} total={coverage.total} periodLabel={monthLabel(currentMonth)} />
+        <CoverageGrid covered={coverage.covered} flagged={coverage.flagged} total={coverage.total} periodLabel={periodLabel} />
       </Card>
 
       <Card title="Channel Snapshot" style={{ marginTop: 16 }}>
+        <div style={{ fontSize: 10.5, color: "#9AA39B", marginBottom: 10 }}>Always shows each channel's latest logged stats, regardless of the period selected above.</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12 }}>
           {CHANNELS.map(ch => {
             const rows = (channelStats[ch.id] || []).sort((a, b) => a.month.localeCompare(b.month));
