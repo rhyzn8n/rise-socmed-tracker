@@ -670,7 +670,7 @@ export default function RiseSocMedTracker() {
 
       {/* MAIN */}
       <div className="app-main" style={{ flex: 1, padding: "26px 32px", overflowY: "auto", minHeight: "100vh" }}>
-        {tab === "dashboard" && <Dashboard requests={requests} channelStats={channelStats} targets={targets} allServicesList={allServicesList} />}
+        {tab === "dashboard" && <Dashboard requests={requests} channelStats={channelStats} targets={targets} allServicesList={allServicesList} setTab={setTab} />}
         {tab === "requests"  && <Requests requests={requests} setRequests={setRequests} captions={captions} user={user} majorServices={allMajorServices} minorServices={allMinorServices} />}
         {tab === "channels"  && <Channels channelStats={channelStats} setChannelStats={setChannelStats} addChannel={addChannel} deleteChannel={deleteChannel} editChannel={editChannel} channelsVersion={channelsVersion} isAdmin={isAdmin} />}
         {tab === "targets"   && <Targets targets={targets} setTargets={setTargets} requests={requests} majorServices={allMajorServices} />}
@@ -679,7 +679,7 @@ export default function RiseSocMedTracker() {
           targets={targets} setTargets={setTargets} user={user} notes={notes} setNotes={setNotes}
           majorServices={allMajorServices} minorServices={allMinorServices} extraServices={extraServices} setExtraServices={setExtraServices} isAdmin={isAdmin} />}
         {tab === "reports" && <Reports requests={requests} channelStats={channelStats} targets={targets} captions={captions} events={events}
-          majorServices={allMajorServices} minorServices={allMinorServices} allServicesList={allServicesList} extraServices={extraServices} />}
+          majorServices={allMajorServices} minorServices={allMinorServices} allServicesList={allServicesList} extraServices={extraServices} setTab={setTab} />}
         {tab === "events" && <Events events={events} setEvents={setEvents} majorServices={allMajorServices} minorServices={allMinorServices} />}
       </div>
     </div>
@@ -920,7 +920,7 @@ function Login() {
 
 /* ---------------------------------- DASHBOARD ---------------------------------- */
 
-function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERVICES }) {
+function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERVICES, setTab }) {
   const [periodType, setPeriodType] = useState("month");
   const [cursor, setCursor] = useState(new Date());
   const [customStart, setCustomStart] = useState("");
@@ -1010,7 +1010,14 @@ function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERV
       </div>
 
       <Card style={{ marginTop: 16 }}>
-        <CoverageLegend />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <CoverageLegend />
+          {setTab && (
+            <button onClick={() => setTab("scheduler")} style={{ border: "none", background: "transparent", color: "#146356", fontSize: 11.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+              <ShieldCheck size={13} /> Manage Services
+            </button>
+          )}
+        </div>
         <CoverageGrid covered={coverage.covered} flagged={coverage.flagged} total={coverage.total} periodLabel={periodLabel} />
       </Card>
 
@@ -2939,7 +2946,7 @@ function TemplateEditModal({ template, onClose, onSave }) {
 
 /* ---------------------------------- REPORTS ---------------------------------- */
 
-function Reports({ requests, channelStats, targets, captions, events = [], majorServices, minorServices, allServicesList, extraServices }) {
+function Reports({ requests, channelStats, targets, captions, events = [], majorServices, minorServices, allServicesList, extraServices, setTab }) {
   const [periodType, setPeriodType] = useState("month");
   const [cursor, setCursor] = useState(new Date());
   const [customStart, setCustomStart] = useState("");
@@ -3196,7 +3203,14 @@ function Reports({ requests, channelStats, targets, captions, events = [], major
       </div>
 
       <Card style={{ marginBottom: 16 }}>
-        <CoverageLegend />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <CoverageLegend />
+          {setTab && (
+            <button onClick={() => setTab("scheduler")} style={{ border: "none", background: "transparent", color: "#146356", fontSize: 11.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+              <ShieldCheck size={13} /> Manage Services
+            </button>
+          )}
+        </div>
         <CoverageGrid covered={coverage.covered} flagged={coverage.flagged} total={coverage.total} />
       </Card>
 
