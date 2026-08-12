@@ -453,6 +453,29 @@ export default function RiseSocMedTracker() {
     if (snapshot.restrictedAccess) setRestrictedAccess(snapshot.restrictedAccess);
   };
 
+  const [autoBackupMsg, setAutoBackupMsg] = useState("");
+  const downloadAutoBackup = async () => {
+    setAutoBackupMsg("Checking…");
+    try {
+      const snap = await getDoc(doc(db, "riseSocMedData", "autoBackup"));
+      if (!snap.exists()) { setAutoBackupMsg("No weekly auto-backup has run yet."); return; }
+      const snapshot = snap.data().value;
+      const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `rise-socmed-autobackup-${snapshot.savedAt?.slice(0, 10) || "unknown"}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setAutoBackupMsg(`Downloaded — last saved ${snapshot.savedAt ? new Date(snapshot.savedAt).toLocaleString() : "unknown time"}`);
+    } catch (err) {
+      setAutoBackupMsg("Couldn't retrieve the auto-backup.");
+    }
+    setTimeout(() => setAutoBackupMsg(""), 4000);
+  };
+
   // Restricted-access users only ever see the Events tab — this must live before the
   // early returns below since it's a hook, and hooks can't be called conditionally.
   const isAdminEarly = !!(user && ADMIN_EMAILS.includes(user.email));
@@ -556,6 +579,11 @@ export default function RiseSocMedTracker() {
               </button>
             )}
             {isAdmin && (
+              <button onClick={downloadAutoBackup} title="Download the latest weekly auto-backup (Admin)" style={{ border: "none", background: "transparent", color: "#B7C4BF", padding: 2 }}>
+                <DatabaseBackup size={15} />
+              </button>
+            )}
+            {isAdmin && (
               <button onClick={() => setImportModalOpen(true)} title="Import data from a backup file (Admin)" style={{ border: "none", background: "transparent", color: "#B7C4BF", padding: 2 }}>
                 <Upload size={15} />
               </button>
@@ -585,6 +613,7 @@ export default function RiseSocMedTracker() {
             </button>
           </div>
         </div>
+        {autoBackupMsg && <div style={{ fontSize: 10, color: "#B7C4BF", marginTop: 4 }}>{autoBackupMsg}</div>}
         {bellOpen && (
           <>
             <div onClick={() => setBellOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 90 }} />
