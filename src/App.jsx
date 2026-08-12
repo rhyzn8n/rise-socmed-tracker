@@ -670,7 +670,7 @@ export default function RiseSocMedTracker() {
 
       {/* MAIN */}
       <div className="app-main" style={{ flex: 1, padding: "26px 32px", overflowY: "auto", minHeight: "100vh" }}>
-        {tab === "dashboard" && <Dashboard requests={requests} channelStats={channelStats} targets={targets} allServicesList={allServicesList} setTab={setTab} />}
+        {tab === "dashboard" && <Dashboard requests={requests} channelStats={channelStats} targets={targets} allServicesList={allServicesList} extraServices={extraServices} setExtraServices={setExtraServices} isAdmin={isAdmin} setTab={setTab} />}
         {tab === "requests"  && <Requests requests={requests} setRequests={setRequests} captions={captions} user={user} majorServices={allMajorServices} minorServices={allMinorServices} />}
         {tab === "channels"  && <Channels channelStats={channelStats} setChannelStats={setChannelStats} addChannel={addChannel} deleteChannel={deleteChannel} editChannel={editChannel} channelsVersion={channelsVersion} isAdmin={isAdmin} />}
         {tab === "targets"   && <Targets targets={targets} setTargets={setTargets} requests={requests} majorServices={allMajorServices} />}
@@ -679,7 +679,7 @@ export default function RiseSocMedTracker() {
           targets={targets} setTargets={setTargets} user={user} notes={notes} setNotes={setNotes}
           majorServices={allMajorServices} minorServices={allMinorServices} extraServices={extraServices} setExtraServices={setExtraServices} isAdmin={isAdmin} />}
         {tab === "reports" && <Reports requests={requests} channelStats={channelStats} targets={targets} captions={captions} events={events}
-          majorServices={allMajorServices} minorServices={allMinorServices} allServicesList={allServicesList} extraServices={extraServices} setTab={setTab} />}
+          majorServices={allMajorServices} minorServices={allMinorServices} allServicesList={allServicesList} extraServices={extraServices} setExtraServices={setExtraServices} isAdmin={isAdmin} setTab={setTab} />}
         {tab === "events" && <Events events={events} setEvents={setEvents} majorServices={allMajorServices} minorServices={allMinorServices} />}
       </div>
     </div>
@@ -825,6 +825,53 @@ function AccessManagerModal({ current, onSave, onClose }) {
   );
 }
 
+/* ---------------------------------- COVERAGE SETTINGS (admin) ---------------------------------- */
+
+function CoverageSettingsModal({ allServicesList, current, onSave, onClose }) {
+  const [selected, setSelected] = useState(current);
+  const toggle = (s) => setSelected(list => list.includes(s) ? list.filter(x => x !== s) : [...list, s]);
+  const selectAll = () => setSelected(allServicesList);
+  const selectNone = () => setSelected([]);
+
+  return (
+    <div style={overlay}>
+      <div style={{ ...modal, width: 560 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <div className="disp" style={{ fontSize: 18, fontWeight: 600 }}>Coverage Settings <span style={{ fontSize: 11, fontWeight: 600, color: "#E8A33D", background: "#E8A33D1A", padding: "2px 8px", borderRadius: 10, marginLeft: 6 }}>Admin</span></div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent" }}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: 11.5, color: "#5B675F", marginBottom: 14 }}>
+          Choose which services actually count toward Service Coverage. This doesn't affect the full list used for tagging requests/posts in Requests or Scheduler — those stay exactly as-is, in sync with the job docket. This only narrows what Coverage measures.
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div style={{ fontSize: 11, color: "#9AA39B" }}>{selected.length} of {allServicesList.length} selected</div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={selectAll} style={{ border: "none", background: "transparent", color: "#146356", fontSize: 11, fontWeight: 600 }}>Select All</button>
+            <button onClick={selectNone} style={{ border: "none", background: "transparent", color: "#C4544A", fontSize: 11, fontWeight: 600 }}>Select None</button>
+          </div>
+        </div>
+
+        <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #E3E6E0", borderRadius: 8, padding: 10, marginBottom: 20 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {allServicesList.map(s => (
+              <button key={s} onClick={() => toggle(s)} style={{
+                display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 14, fontSize: 11.5, fontWeight: 600,
+                border: `1px solid ${selected.includes(s) ? "#146356" : "#D8DDD5"}`, background: selected.includes(s) ? "#146356" : "#fff",
+                color: selected.includes(s) ? "#fff" : "#5B675F",
+              }}>
+                {selected.includes(s) ? <CheckSquare size={12} /> : <Square size={12} />} {s}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button onClick={() => onSave(selected)} style={{ ...primaryBtn, width: "100%", justifyContent: "center" }}>Save Coverage Settings</button>
+      </div>
+    </div>
+  );
+}
+
 function ThemeModal({ current, onSave, onClose }) {
   const [bg, setBg] = useState(current.bg || "#F5F6F1");
   const [accent, setAccent] = useState(current.accent || "#146356");
@@ -920,11 +967,18 @@ function Login() {
 
 /* ---------------------------------- DASHBOARD ---------------------------------- */
 
-function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERVICES, setTab }) {
+function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERVICES, extraServices, setExtraServices, isAdmin, setTab }) {
   const [periodType, setPeriodType] = useState("month");
   const [cursor, setCursor] = useState(new Date());
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
+  const [coverageModalOpen, setCoverageModalOpen] = useState(false);
+
+  // Which services actually count toward Coverage — a curated subset (admin-editable
+  // via "Coverage Settings"), separate from the full tagging list used in Requests/
+  // Scheduler. Defaults to every service until an admin explicitly narrows it down.
+  const trackedServices = (extraServices?.coverageTracked?.length ? extraServices.coverageTracked : allServicesList)
+    .filter(s => allServicesList.includes(s));
 
   const { start, end, label: periodLabel } = useMemo(() => getReportRange(periodType, cursor, customStart, customEnd), [periodType, cursor, customStart, customEnd]);
   const shift = (amt) => setCursor(c => {
@@ -952,13 +1006,13 @@ function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERV
 
   const coverage = useMemo(() => {
     const counts = {};
-    allServicesList.forEach(s => { counts[s] = 0; });
+    trackedServices.forEach(s => { counts[s] = 0; });
     postedInPeriod.forEach(r => r.services.forEach(s => { if (counts[s] !== undefined) counts[s] += 1; }));
     const list = Object.entries(counts).map(([name, count]) => ({ name, count }));
     const flagged = list.filter(s => s.count === 0).sort((a, b) => a.name.localeCompare(b.name));
     const covered = list.filter(s => s.count > 0).sort((a, b) => b.count - a.count);
     return { flagged, covered, total: list.length };
-  }, [postedInPeriod, allServicesList]);
+  }, [postedInPeriod, trackedServices]);
 
   const byCreative = useMemo(() => {
     const counts = {};
@@ -1012,14 +1066,30 @@ function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERV
       <Card style={{ marginTop: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
           <CoverageLegend />
-          {setTab && (
-            <button onClick={() => setTab("scheduler")} style={{ border: "none", background: "transparent", color: "#146356", fontSize: 11.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
-              <ShieldCheck size={13} /> Manage Services
-            </button>
-          )}
+          <div style={{ display: "flex", gap: 14 }}>
+            {isAdmin && (
+              <button onClick={() => setCoverageModalOpen(true)} style={{ border: "none", background: "transparent", color: "#146356", fontSize: 11.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+                <ListChecks size={13} /> Coverage Settings
+              </button>
+            )}
+            {setTab && (
+              <button onClick={() => setTab("scheduler")} style={{ border: "none", background: "transparent", color: "#146356", fontSize: 11.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+                <ShieldCheck size={13} /> Manage Services
+              </button>
+            )}
+          </div>
         </div>
         <CoverageGrid covered={coverage.covered} flagged={coverage.flagged} total={coverage.total} periodLabel={periodLabel} />
       </Card>
+
+      {coverageModalOpen && (
+        <CoverageSettingsModal
+          allServicesList={allServicesList}
+          current={trackedServices}
+          onSave={(list) => { setExtraServices(es => ({ ...es, coverageTracked: list })); setCoverageModalOpen(false); }}
+          onClose={() => setCoverageModalOpen(false)}
+        />
+      )}
 
       <Card title="Channel Snapshot" style={{ marginTop: 16 }}>
         <div style={{ fontSize: 10.5, color: "#9AA39B", marginBottom: 10 }}>Always shows each channel's latest logged stats, regardless of the period selected above.</div>
@@ -2946,7 +3016,8 @@ function TemplateEditModal({ template, onClose, onSave }) {
 
 /* ---------------------------------- REPORTS ---------------------------------- */
 
-function Reports({ requests, channelStats, targets, captions, events = [], majorServices, minorServices, allServicesList, extraServices, setTab }) {
+function Reports({ requests, channelStats, targets, captions, events = [], majorServices, minorServices, allServicesList, extraServices, setExtraServices, isAdmin, setTab }) {
+  const [coverageModalOpen, setCoverageModalOpen] = useState(false);
   const [periodType, setPeriodType] = useState("month");
   const [cursor, setCursor] = useState(new Date());
   const [customStart, setCustomStart] = useState("");
@@ -3037,12 +3108,15 @@ function Reports({ requests, channelStats, targets, captions, events = [], major
     return PRIORITIES.map(p => ({ name: p, count: counts[p] || 0 })).filter(p => p.count > 0);
   }, [requestsInRange]);
 
+  const trackedServices = (extraServices?.coverageTracked?.length ? extraServices.coverageTracked : allServicesList)
+    .filter(s => allServicesList.includes(s));
+
   const coverage = useMemo(() => {
-    const counts = {}; allServicesList.forEach(s => { counts[s] = 0; });
+    const counts = {}; trackedServices.forEach(s => { counts[s] = 0; });
     postedInRange.forEach(r => r.services.forEach(s => { if (counts[s] !== undefined) counts[s] += 1; }));
     const list = Object.entries(counts).map(([name, count]) => ({ name, count }));
     return { flagged: list.filter(s => s.count === 0).sort((a, b) => a.name.localeCompare(b.name)), covered: list.filter(s => s.count > 0).sort((a, b) => b.count - a.count), total: list.length };
-  }, [postedInRange, allServicesList]);
+  }, [postedInRange, trackedServices]);
 
   const channelPerf = useMemo(() => CHANNELS.map(ch => {
     const rows = (channelStats[ch.id] || []).filter(r => r.month >= start.slice(0, 7) && r.month <= end.slice(0, 7)).sort((a, b) => a.month.localeCompare(b.month));
@@ -3205,14 +3279,30 @@ function Reports({ requests, channelStats, targets, captions, events = [], major
       <Card style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
           <CoverageLegend />
-          {setTab && (
-            <button onClick={() => setTab("scheduler")} style={{ border: "none", background: "transparent", color: "#146356", fontSize: 11.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
-              <ShieldCheck size={13} /> Manage Services
-            </button>
-          )}
+          <div style={{ display: "flex", gap: 14 }}>
+            {isAdmin && (
+              <button onClick={() => setCoverageModalOpen(true)} style={{ border: "none", background: "transparent", color: "#146356", fontSize: 11.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+                <ListChecks size={13} /> Coverage Settings
+              </button>
+            )}
+            {setTab && (
+              <button onClick={() => setTab("scheduler")} style={{ border: "none", background: "transparent", color: "#146356", fontSize: 11.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+                <ShieldCheck size={13} /> Manage Services
+              </button>
+            )}
+          </div>
         </div>
         <CoverageGrid covered={coverage.covered} flagged={coverage.flagged} total={coverage.total} />
       </Card>
+
+      {coverageModalOpen && (
+        <CoverageSettingsModal
+          allServicesList={allServicesList}
+          current={trackedServices}
+          onSave={(list) => { setExtraServices(es => ({ ...es, coverageTracked: list })); setCoverageModalOpen(false); }}
+          onClose={() => setCoverageModalOpen(false)}
+        />
+      )}
 
 
       <Card title="Target Achievement">
