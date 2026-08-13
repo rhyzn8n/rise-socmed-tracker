@@ -989,7 +989,7 @@ function Dashboard({ requests, channelStats, targets, allServicesList = ALL_SERV
     return d;
   });
 
-  const requestsInPeriod = useMemo(() => requests.filter(r => r.dateLogged >= start && r.dateLogged <= end), [requests, start, end]);
+  const requestsInPeriod = useMemo(() => requests.filter(r => r.origin !== "scheduler" && r.dateLogged >= start && r.dateLogged <= end), [requests, start, end]);
 
   // Coverage counts a service as covered only once something for it has actually been
   // POSTED (via the Scheduler, status = "Posted") within the period — not just requested
@@ -1221,7 +1221,7 @@ function RequestModal({ onClose, onSave, user, majorServices = MAJOR_SERVICES, m
   const [submitting, setSubmitting] = useState(false);
   const list = serviceType === "major" ? majorServices : minorServices;
 
-  const toggleService = (s) => setServices(cur => cur.includes(s) ? cur.filter(x => x !== s) : [...cur, s]);
+  const toggleService = (s) => setServices(cur => cur.includes(s) ? [] : [s]); // single-select — choosing a new service replaces any previous one
   const togglePurpose = (p) => setPurposes(cur => cur.includes(p) ? cur.filter(x => x !== p) : [...cur, p]);
 
   const submit = () => {
@@ -1300,7 +1300,8 @@ function RequestModal({ onClose, onSave, user, majorServices = MAJOR_SERVICES, m
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 110, overflowY: "auto", border: "1px solid #E3E6E0", borderRadius: 8, padding: 8, marginBottom: 6 }}>
           {list.map(s => <button key={s} onClick={() => toggleService(s)} style={pillBtn(services.includes(s))}>{s}</button>)}
-          <OtherTagPicker services={services} setServices={setServices} />
+          <OtherTagPicker services={services} setServices={setServices} singleSelect />
+          <div style={{ fontSize: 10, color: "#9AA39B", marginTop: 4 }}>Only one service can be selected — choosing another replaces this one.</div>
         </div>
         {services.length > 0 && <div style={{ fontSize: 11, color: "#5B675F", marginBottom: 14 }}>{services.length} tagged: {services.join(", ")}</div>}
 
@@ -2755,7 +2756,7 @@ function SchedulerPostModal({ onClose, onSave, onRemove, initialDate, editingPos
 
   const [linkedCaptionId, setLinkedCaptionId] = useState(editingPost?.linkedCaptionId || "");
 
-  const toggleService = (s) => setServices(cur => cur.includes(s) ? cur.filter(x => x !== s) : [...cur, s]);
+  const toggleService = (s) => setServices(cur => cur.includes(s) ? [] : [s]); // single-select — choosing a new service replaces any previous one
 
   const handleDateChange = (val) => {
     if (editingPost && val !== editingPost.scheduledDate && postStatus === "Pending") setPostStatus("Rescheduled");
@@ -2817,7 +2818,8 @@ function SchedulerPostModal({ onClose, onSave, onRemove, initialDate, editingPos
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 90, overflowY: "auto", border: "1px solid #E3E6E0", borderRadius: 8, padding: 8, marginBottom: 14 }}>
           {list.map(s => <button key={s} onClick={() => toggleService(s)} style={pillBtn(services.includes(s))}>{s}</button>)}
-          <OtherTagPicker services={services} setServices={setServices} />
+          <OtherTagPicker services={services} setServices={setServices} singleSelect />
+          <div style={{ fontSize: 10, color: "#9AA39B", marginTop: 4 }}>Only one service can be selected — choosing another replaces this one.</div>
         </div>
 
         <CaptionContainer
@@ -3056,7 +3058,7 @@ function Reports({ requests, channelStats, targets, captions, events = [], major
     return d;
   });
 
-  const requestsInRange = useMemo(() => requests.filter(r => r.dateLogged >= start && r.dateLogged <= end), [requests, start, end]);
+  const requestsInRange = useMemo(() => requests.filter(r => r.origin !== "scheduler" && r.dateLogged >= start && r.dateLogged <= end), [requests, start, end]);
   // Coverage counts a service as covered only once something for it has actually been
   // POSTED (via the Scheduler, status = "Posted") within the report range — not just
   // requested. Uses scheduledDate, not dateLogged, since "covered" means "went out."
@@ -3422,12 +3424,15 @@ function Header({ title, sub, action }) {
 }
 const toolbarBtn = { border: "1px solid #D8DDD5", background: "#fff", borderRadius: 5, padding: "3px 6px", color: "#0E2B27", display: "flex" };
 
-function OtherTagPicker({ services, setServices }) {
+function OtherTagPicker({ services, setServices, singleSelect }) {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState("");
   const addOther = () => {
     const v = value.trim();
-    if (v && !services.includes(v)) setServices(cur => [...cur, v]);
+    if (v) {
+      if (singleSelect) setServices([v]); // replaces any previous selection — only one service allowed
+      else if (!services.includes(v)) setServices(cur => [...cur, v]);
+    }
     setValue(""); setOpen(false);
   };
   if (!open) {
