@@ -17,8 +17,8 @@ import {
 
 /* ---------------------------------- DATA ---------------------------------- */
 
-const MAJOR_SERVICES = ["NCLEX Australia","NCLEX Canada","NCLEX USA","Middle East","Ireland","UKNMC/Midwife","Online Review"];
-const MINOR_SERVICES = ["NAI","Tourist Visa","Visascreen","License Endorsement","OPRA/KAPS","Australia Midwifery","ASCPi","AUS License Renewal","Branch Info","CBC","Truemerit","CPD","CVS NZ/NCNZ","FAQ/Trivia","Featured Clients","General Post","Hope Talk","Hopkins","IELTS Sced","IPASS Cares","Live Video","Medtech Middle East","MET","Motivational","NCLEX Question","NCLEX Answer","New Mexico","NNAS","PNLE","PRC","Promo","NCLEX Q&AI","Score Transfer","Study Tips/Trivia","UWORLD","US License Renewal","WES","Blog","YT Post"];
+const MAJOR_SERVICES = ["NCLEX Australia","NCLEX Canada","NCLEX USA","Middle East Exam","Ireland (NMBI)","UKNMC Nursing","UKNMC Midwifery","IPASS Online Review","IPASS PNLE","Visascreen","VisaKey"];
+const MINOR_SERVICES = ["New Mexico","NAI PH","Australia Tourist Visa","License Endorsement","OPRA","Australia Midwifery","ASCPi","US License Renewal","Australia License Renewal","Truemerit","CPD","CVS NZ/NCNZ","Hopkins","MedTec Middle East","RadTech Middle East","MET","NNAS","PRC","Score Transfer","UWORLD","WES"];
 const CREATIVE_TYPES = ["Infographics/Information","Blog Cover","Motivational Content","Promo","Reel/Video/Animation","Educational","Event","Passers","Testimonial"];
 const ALL_SERVICES = [...MAJOR_SERVICES, ...MINOR_SERVICES];
 const EXTRA_MAJOR_COLOR_POOL = ["#7A6FB0", "#4C8FBD", "#A8763E", "#5C8A3A", "#8A4B6B"];
@@ -2234,6 +2234,10 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
     setExtraServices(prev => ({ ...prev, [key]: prev[key].filter(s => s !== name) }));
   };
 
+  const resetServices = () => {
+    setExtraServices(prev => ({ ...prev, major: [...MAJOR_SERVICES], minor: [...MINOR_SERVICES] }));
+  };
+
   return (
     <div>
       <Header title="Scheduler" sub="Color-coded planning calendar across channels" action={
@@ -2466,7 +2470,7 @@ function Scheduler({ requests, setRequests, captions, setCaptions, templates, se
         <ServiceManagerModal
           majorServices={majorServices} minorServices={minorServices}
           onClose={() => setAddServiceOpen(false)}
-          onAdd={addService} onRename={renameService} onDelete={deleteService}
+          onAdd={addService} onRename={renameService} onDelete={deleteService} onReset={resetServices}
         />
       )}
     </div>
@@ -2653,12 +2657,13 @@ function NotesBoard({ notes, setNotes, user }) {
   );
 }
 
-function ServiceManagerModal({ majorServices, minorServices, onClose, onAdd, onRename, onDelete }) {
+function ServiceManagerModal({ majorServices, minorServices, onClose, onAdd, onRename, onDelete, onReset }) {
   const [type, setType] = useState("major");
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState(null); // service name currently being renamed
   const [editValue, setEditValue] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmReset, setConfirmReset] = useState(false);
   const list = type === "major" ? majorServices : minorServices;
 
   const startEdit = (s) => { setEditing(s); setEditValue(s); };
@@ -2703,13 +2708,30 @@ function ServiceManagerModal({ majorServices, minorServices, onClose, onAdd, onR
         <div style={{ fontSize: 10.5, color: "#9AA39B", marginBottom: 14 }}>Renaming updates every existing request, caption, and target that uses this service. Deleting only removes it from future pickers — existing history keeps the old tag as text.</div>
 
         <label style={label}>Add new {type} service</label>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
           <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="e.g. NCLEX New Zealand" style={{ ...inputStyle, flex: 1 }} />
           <button
             disabled={!newName.trim()}
             onClick={() => { onAdd(type, newName.trim()); setNewName(""); }}
             style={{ ...primaryBtn, opacity: !newName.trim() ? 0.5 : 1 }}
           ><Plus size={14} /></button>
+        </div>
+
+        <div style={{ borderTop: "1px solid #E3E6E0", paddingTop: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#5B675F", marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.3 }}>Reset</div>
+          <div style={{ fontSize: 10.5, color: "#9AA39B", marginBottom: 10 }}>
+            Replaces the entire Major and Minor lists with the official current set (11 Major, 21 Minor) — used everywhere: Requests, Scheduler, and Service Coverage. Any custom services you've added that aren't on the official list will be removed from future pickers; existing history keeps its tags as text either way.
+          </div>
+          {!confirmReset ? (
+            <button onClick={() => setConfirmReset(true)} style={{ ...primaryBtn, width: "100%", justifyContent: "center", background: "#fff", color: "#C4544A", border: "1px solid #C4544A" }}>
+              Reset Services to Official List
+            </button>
+          ) : (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setConfirmReset(false)} style={{ ...pillBtn(false), flex: 1, padding: "10px 0", textAlign: "center" }}>Cancel</button>
+              <button onClick={() => { onReset(); setConfirmReset(false); }} style={{ ...primaryBtn, flex: 1, justifyContent: "center", background: "#C4544A" }}>Yes, Reset Now</button>
+            </div>
+          )}
         </div>
       </div>
     </div>
