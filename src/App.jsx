@@ -21,11 +21,13 @@ const MAJOR_SERVICES = ["NCLEX Australia","NCLEX Canada","NCLEX USA","Middle Eas
 const MINOR_SERVICES = ["New Mexico","NAI PH","Australia Tourist Visa","License Endorsement","OPRA","Australia Midwifery","ASCPi","US License Renewal","Australia License Renewal","Truemerit","CPD","CVS NZ/NCNZ","Hopkins","MedTec Middle East","RadTech Middle East","MET","NNAS","PRC","Score Transfer","UWORLD","WES"];
 const CREATIVE_TYPES = ["Infographics/Information","Blog Cover","Motivational Content","Promo","Reel/Video/Animation","Educational","Event","Passers","Testimonial"];
 const ALL_SERVICES = [...MAJOR_SERVICES, ...MINOR_SERVICES];
+// Published year-over-year socmed report (separate page, embeddable in Notion). Change here if the link ever changes.
+const YOY_REPORT_URL = "https://claude.ai/artifact/9r4PPpC7g5NjDETrVadhYs";
 const EXTRA_MAJOR_COLOR_POOL = ["#7A6FB0", "#4C8FBD", "#A8763E", "#5C8A3A", "#8A4B6B"];
 const PIE_COLORS = ["#146356", "#E8A33D", "#4C8C6B", "#B0538A", "#3E7CB1", "#C4544A", "#2E7D6B", "#9AA39B", "#0E2B27"];
 // Only these login emails are ever treated as Admin — a code-level lock, same pattern as Rise V1.
 // Admin cannot be granted through the app UI; edit this list and redeploy to change it.
-const ADMIN_EMAILS = ["ryemarketing20@gmail.com"];
+const ADMIN_EMAILS = ["YOUR_ADMIN_EMAIL@example.com"];
 const MAJOR_SERVICE_COLOR = {
   "NCLEX Australia": "#146356",
   "NCLEX Canada": "#3E7CB1",
@@ -3404,6 +3406,22 @@ function Reports({ requests, channelStats, targets, captions, events = [], major
             </tbody>
           </table>
         )}
+      </Card>
+
+      {/* Link-out only: this card holds no data. The year-over-year report lives on its own
+          published page so it can be embedded in Notion (nothing behind this app's login can be),
+          and its figures are maintained there — not duplicated here. */}
+      <Card title="Year-over-year performance report" style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 12.5, color: "#5B675F", maxWidth: 620, lineHeight: 1.6 }}>
+            Every channel's follower growth and engagement compared year over year, with IPASS Processing Main
+            benchmarked against NEAC and Simplify NCLEX. It's a separate published page so sections can be embedded
+            in Notion. Its figures are updated on that page, not here.
+          </div>
+          <a href={YOY_REPORT_URL} target="_blank" rel="noopener noreferrer" style={{ ...primaryBtn, textDecoration: "none" }}>
+            <ExternalLink size={14} /> Open report
+          </a>
+        </div>
       </Card>
     </div>
   );
