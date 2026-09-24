@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Social Media Performance Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,650&family=Inter:wght@400;500;550;600;650&display=swap" rel="stylesheet">
+<style id="app-style">:root{
+  --bg:#F2F5F3; --panel:#FFFFFF; --panel2:#EBF0EC; --line:#DCE3DE; --line2:#C5D0C8;
+  --ink:#0E2B27; --ink2:#4B5F57; --ink3:#7C8C85;
+  --own:#146356; --ownSoft:#DDEEE7; --ya:#AFC8BD; --yb:#146356;
+  --up:#1D7A4A; --down:#B23A3A; --amber:#B97A12;
+  --ch1:#146356; --ch2:#3E7CB1; --ch3:#B0538A; --ch4:#6E9A3B; --ch5:#3A4744; --ch6:#6B5CA5; --ch7:#C4544A;
+  --cmpA:#146356; --cmpB:#B97A12; --cmpC:#3E6FA8;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0B1A17; --panel:#11241F; --panel2:#172E28; --line:#21392F; --line2:#2F4B40;
+    --ink:#E6EFEA; --ink2:#A3B7AD; --ink3:#71877C;
+    --own:#5CC7A5; --ownSoft:#163B31; --ya:#3F5E52; --yb:#5CC7A5;
+    --up:#5BD38F; --down:#F08A8A; --amber:#E7B155;
+    --ch1:#5CC7A5; --ch2:#7FB3E0; --ch3:#E08DC0; --ch4:#A9CF6E; --ch5:#C3CEC9; --ch6:#B1A5E8; --ch7:#F0928A;
+    --cmpA:#5CC7A5; --cmpB:#E7B155; --cmpC:#7FAEE8;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0B1A17; --panel:#11241F; --panel2:#172E28; --line:#21392F; --line2:#2F4B40;
+  --ink:#E6EFEA; --ink2:#A3B7AD; --ink3:#71877C;
+  --own:#5CC7A5; --ownSoft:#163B31; --ya:#3F5E52; --yb:#5CC7A5;
+  --up:#5BD38F; --down:#F08A8A; --amber:#E7B155;
+  --ch1:#5CC7A5; --ch2:#7FB3E0; --ch3:#E08DC0; --ch4:#A9CF6E; --ch5:#C3CEC9; --ch6:#B1A5E8; --ch7:#F0928A;
+  --cmpA:#5CC7A5; --cmpB:#E7B155; --cmpC:#7FAEE8;
+}
+*{box-sizing:inherit}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:30px 20px 70px}
+.disp{font-family:"Fraunces",Georgia,"Times New Roman",serif;font-optical-sizing:auto}
+h1{font-size:34px;line-height:1.1;margin:0 0 6px;font-weight:600;letter-spacing:-.015em}
+.sub{color:var(--ink2);font-size:13.5px;margin:0}
+.lede{font-size:23px;line-height:1.4;font-weight:500;max-width:30em;margin:26px 0 0;letter-spacing:-.005em}
+.lede strong{font-weight:650}
+.controls{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-end;margin:26px 0 8px;padding:14px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.grp{display:flex;flex-direction:column;gap:5px}
+.lab{font-size:12px;color:var(--ink3);font-weight:550}
+.sel{background:var(--panel);color:var(--ink);border:1px solid var(--line2);border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;cursor:pointer}
+.sel:focus-visible,.seg button:focus-visible,.chip:focus-visible,.btn:focus-visible,.gcell:focus{outline:2px solid var(--own);outline-offset:1px}
+.seg{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}
+.seg button{background:none;border:none;font:inherit;font-size:12.5px;padding:5px 12px;border-radius:6px;color:var(--ink2);cursor:pointer;white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--own);color:var(--panel);font-weight:600}
+
+section.sec{margin-top:44px}
+.sec-h{display:flex;align-items:baseline;gap:14px;margin-bottom:6px}
+.sec-h h2{font-size:26px;line-height:1.2;margin:0;font-weight:600;letter-spacing:-.01em}
+.sec-p{color:var(--ink2);font-size:13.5px;margin:0 0 18px;max-width:46em}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 20px 18px;margin-bottom:16px}
+.card-h{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.card-h h3{font-size:15.5px;margin:0 0 2px;font-weight:650}
+.card-h p{margin:0;color:var(--ink2);font-size:12.5px}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:11px;overflow:hidden;margin-bottom:18px}
+.kpi{background:var(--panel);padding:13px 15px}
+.kpi .k{font-size:12px;color:var(--ink2);font-weight:550}
+.kpi .v{font-size:25px;font-weight:650;margin-top:2px;letter-spacing:-.02em;line-height:1.15;font-variant-numeric:tabular-nums}
+.kpi .d{font-size:12px;color:var(--ink3);margin-top:3px;font-variant-numeric:tabular-nums}
+.up{color:var(--up)} .down{color:var(--down)} .flat{color:var(--ink3)}
+
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--ink2);margin:0 0 8px}
+.sw{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.ln{display:inline-block;width:22px;height:0;border-top:2.5px solid var(--ink2);margin-right:6px;vertical-align:3px}
+.ln.dash{border-top-style:dashed;border-top-width:2px}
+.callout{margin-top:12px;font-size:13px;color:var(--ink)}
+.callout b{font-weight:650}
+
+svg{display:block;overflow:visible}
+.gl{stroke:var(--line);stroke-width:1}
+.zl{stroke:var(--line2);stroke-width:1.2}
+.axt{fill:var(--ink3);font-size:10.5px;font-family:"Inter",sans-serif}
+.vt{fill:var(--ink2);font-size:9.5px;font-family:"Inter",sans-serif;font-variant-numeric:tabular-nums}
+.el{font-size:10.5px;font-weight:600;font-family:"Inter",sans-serif}
+
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.chip{border:1px solid var(--line2);background:var(--panel);color:var(--ink3);border-radius:20px;padding:4px 11px;font:inherit;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.chip[aria-pressed="true"]{color:var(--ink);border-color:var(--ink2);font-weight:550}
+.chip .dot{width:9px;height:9px;border-radius:50%;flex:none;opacity:.35}
+.chip[aria-pressed="true"] .dot{opacity:1}
+
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;font-size:12.5px;font-variant-numeric:tabular-nums;min-width:700px}
+th,td{padding:9px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:11.5px;color:var(--ink3);font-weight:600;border-bottom:1.5px solid var(--line2);vertical-align:bottom}
+th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--panel)}
+tr.own td{background:var(--ownSoft);font-weight:600}
+td.nm{font-weight:550}
+
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:18px}
+.tile{border:1px solid var(--line);border-radius:12px;padding:14px 16px;border-top-width:4px}
+.tile .n{font-weight:650;font-size:13.5px}
+.tile .v{font-size:28px;font-weight:650;letter-spacing:-.02em;line-height:1.15;margin-top:4px;font-variant-numeric:tabular-nums}
+.tile .u{font-size:12px;color:var(--ink2)}
+.tile .d{font-size:12px;color:var(--ink3);margin-top:6px;font-variant-numeric:tabular-nums}
+
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:820px){.two{grid-template-columns:1fr}}
+
+.note{font-size:12px;color:var(--ink2);line-height:1.65;margin-top:14px;padding-top:12px;border-top:1px dashed var(--line2);max-width:62em}
+.note b{color:var(--ink)}
+.obj{display:grid;grid-template-columns:1fr 1fr;gap:28px}
+@media(max-width:760px){.obj{grid-template-columns:1fr}}
+.obj h3{font-size:14px;margin:0 0 8px;font-weight:650}
+.obj ul{margin:0;padding:0;list-style:none}
+.obj li{position:relative;padding-left:16px;margin-bottom:7px;font-size:13px;color:var(--ink2)}
+.obj li::before{content:"";position:absolute;left:0;top:.62em;width:7px;height:7px;border-radius:2px;background:var(--own)}
+.flag{background:var(--panel2);border-left:3px solid var(--amber);border-radius:0 9px 9px 0;padding:10px 14px;font-size:12.5px;color:var(--ink2);margin-top:14px}
+.empty{color:var(--ink3);font-size:13px;padding:18px 0}
+
+details.ed{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-top:40px}
+details.ed>summary{padding:15px 20px;cursor:pointer;font-weight:650;font-size:14px;list-style:none;display:flex;justify-content:space-between}
+details.ed>summary::-webkit-details-marker{display:none}
+details.ed>summary::after{content:"Show";color:var(--ink3);font-weight:500;font-size:12.5px}
+details.ed[open]>summary::after{content:"Hide"}
+.edbody{padding:4px 20px 20px;border-top:1px solid var(--line)}
+.edrow{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;margin:14px 0}
+table.grid{min-width:0;width:auto}
+table.grid th{text-align:center;padding:6px 3px}
+table.grid td{padding:2px 3px;text-align:center;border-bottom:0}
+table.grid td:first-child{text-align:left;padding-right:12px;font-weight:550;font-size:12px}
+.gcell{width:74px;padding:6px 7px;font:inherit;font-size:12px;text-align:right;font-variant-numeric:tabular-nums;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:6px}
+.gcell.base{background:var(--ownSoft)}
+textarea{width:100%;min-height:70px;background:var(--panel2);color:var(--ink);border:1px solid var(--line2);border-radius:9px;padding:10px;font:inherit;font-size:12.5px;resize:vertical}
+.tin{background:var(--panel2);color:var(--ink);border:1px solid var(--line2);border-radius:8px;padding:7px 10px;font:inherit;font-size:12.5px;width:170px}
+.btn{background:var(--own);color:var(--panel);border:none;border-radius:9px;padding:9px 16px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.btn.sec{background:transparent;color:var(--ink2);border:1px solid var(--line2)}
+.btn:disabled{opacity:.45;cursor:default}
+.msg{font-size:12.5px;margin-top:10px;min-height:1em}
+.msg.ok{color:var(--up)} .msg.err{color:var(--down)}
+.pick{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--line)}
+.pick-u{font-size:11px;color:var(--ink3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:60ch}
+
+.solo .wrap{padding-top:16px}
+.solo section.sec{margin-top:8px}
+@media(max-width:600px){
+  .wrap{padding:20px 14px 60px}
+  h1{font-size:26px}
+  .lede{font-size:19px}
+  .sec-h h2{font-size:21px}
+  .card{padding:16px 14px}
+  .kpi .v{font-size:21px}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<script id="seed" type="application/json">{"own":"IPASS Processing Main","months":["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],"channels":["IPASS Processing Main","IPASS Processing Online","Instagram","IPASS PNLE","TikTok","LinkedIn","YouTube"],"note":"","followers":{"2025":{"IPASS Processing Main":[258025,262009,265100,270656,274387,277312,280315,283125,286031,null,null,null],"IPASS Processing Online":[10168,10354,10661,10799,10983,11108,11196,11319,11400,null,null,null],"Instagram":[5589,5656,5800,5911,5984,6055,6136,6218,6263,null,null,null],"IPASS PNLE":[1500,1661,1904,2197,2495,2615,2678,2746,2728,null,null,null],"TikTok":[3147,3206,3253,3282,3380,3441,3525,3611,3634,null,null,null],"LinkedIn":[1399,1506,1644,1784,1963,2106,2275,2445,2594,null,null,null],"YouTube":[21767,21863,21985,22056,22130,22208,22255,22387,22390,null,null,null]},"2026":{"IPASS Processing Main":[297455,300483,303683,306039,308284,309532,312701,315851,null,null,null,null],"IPASS Processing Online":[12552,12734,12834,12957,13080,13392,13612,13807,null,null,null,null],"Instagram":[6691,6777,6857,6936,6979,7059,7104,7152,null,null,null,null],"IPASS PNLE":[3245,3274,3284,3410,3432,3418,3423,3467,null,null,null,null],"TikTok":[4908,4989,5029,5067,5100,5143,5168,5212,null,null,null,null],"LinkedIn":[2900,2947,3018,3075,3132,3163,3241,3249,null,null,null,null],"YouTube":[22621,22658,22704,22745,22791,22827,22864,22887,null,null,null,null]}},"baselines":{"2025":{"IPASS Processing Main":253488,"IPASS Processing Online":9900,"Instagram":5458,"IPASS PNLE":7,"TikTok":3093,"LinkedIn":1280,"YouTube":21622},"2026":{"IPASS Processing Main":294802,"IPASS Processing Online":12415,"Instagram":6548,"IPASS PNLE":3210,"TikTok":4792,"LinkedIn":2869,"YouTube":22578}},"engagement":{"2025":{"IPASS Processing Main":[12.63,10.01,11.88,11.82,14.72,18.24,12.02,14.94,13.35,null,null,null],"IPASS Processing Online":[45.23,44.42,23.44,14.81,22.76,21.6,19.65,31.8,29.82,null,null,null],"Instagram":[7.31,7.65,7.72,6.1,6.93,6.52,8.36,8.12,7.66,null,null,null],"IPASS PNLE":[166.66,63.21,68.27,45.5,120.24,38.24,21.39,25.3,82.67,null,null,null],"TikTok":[6.9,12.63,21.64,23.91,43.69,25.95,26.66,20.46,17.11,null,null,null],"LinkedIn":[8.4,9.5,8.9,7.9,8.1,6.8,8.7,7.5,10.2,null,null,null],"YouTube":[0.05,0.09,7.68,0.1,0.06,0.06,9.22,3.13,5.08,null,null,null]},"2026":{"IPASS Processing Main":[9.98,7.02,6.7,7.81,9.98,6.91,9.28,5.65,null,null,null,null],"IPASS Processing Online":[21.78,18.22,9.97,13.23,15.94,14.54,13.96,6.52,null,null,null,null],"Instagram":[15.12,12.97,12.54,13.46,8.81,18.86,13.09,10.87,null,null,null,null],"IPASS PNLE":[27.73,29.53,24.54,35.19,26.51,25.52,26.49,26.73,null,null,null,null],"TikTok":[11.63,8.41,6.04,5.7,3.82,6.16,6.92,7.52,null,null,null,null],"LinkedIn":[10.5,7.6,7.6,7,7.3,6.7,9,7.6,null,null,null,null],"YouTube":[4.05,4.53,4.37,3.79,7.77,2.87,4.69,3.26,null,null,null,null]}},"competitors":{"2026":{"pages":["NEAC","Simplify NCLEX"],"baseline":{"NEAC":443682,"Simplify NCLEX":285385},"followers":{"NEAC":[445298,447636,448223,448804,448981,447938,450792,447092,null,null,null,null],"Simplify NCLEX":[290275,293038,297397,299982,301735,298826,301534,307736,null,null,null,null]}}},"url":"https://claude.ai/artifact/9r4PPpC7g5NjDETrVadhYs","siteUrl":"https://rise-socmed-tracker.vercel.app/report.html"}</script>
+<div id="app"></div>
+<script id="app-code">(function(){
+"use strict";
+
+var D=JSON.parse(document.getElementById("seed").textContent);
+var MON=D.months, OWN=D.own;
+var FULL=["January","February","March","April","May","June","July","August","September","October","November","December"];
+var TINY=50;              // below this starting size, a percentage change is shown as n/a
+var CHV=["--ch1","--ch2","--ch3","--ch4","--ch5","--ch6","--ch7","--ch2","--ch3","--ch4"];
+var CMPV=["--cmpA","--cmpB","--cmpC","--ch6","--ch4"];
+var SECTIONS={
+  "overview":"Report overview",
+  "main":"IPASS Processing Main",
+  "main-followers":"IPASS Processing Main: follower growth",
+  "main-engagement":"IPASS Processing Main: engagement",
+  "channels":"All channels",
+  "channel-trend":"All channels: follower growth trend",
+  "channel-table":"All channels: cumulative and average",
+  "channel-engagement":"All channels: engagement",
+  "competitors":"Competitor benchmark",
+  "competitor-growth":"Competitor benchmark: average audience growth",
+  "competitor-trend":"Competitor benchmark: growth over the year"
+};
+
+var artifact=null, downloads=null, canEdit=false, dirty=false;
+var app=document.getElementById("app");
+
+/* ---------- data access ---------- */
+function years(){ return Object.keys(D.followers).sort(); }
+function num(v){ return (v===null||v===undefined||v===""||isNaN(v))?null:+v; }
+function fol(y,c){ return ((D.followers[y]||{})[c])||[]; }
+function eng(y,c){ return ((D.engagement[y]||{})[c])||[]; }
+// January growth is measured from the December before. If that December figure
+// wasn't typed in as a starting count, use the previous year's December entry —
+// so once December 2026 is filled in, 2027 needs no separate starting count.
+function base(y,c){ var b=num((D.baselines[y]||{})[c]); return b!==null?b:num(fol(String(+y-1),c)[11]); }
+function compBase(y,p){
+  var C=D.competitors[y], b=num(C&&C.baseline&&C.baseline[p]); if(b!==null) return b;
+  var P=D.competitors[String(+y-1)]; return num(P&&P.followers&&P.followers[p]&&P.followers[p][11]);
+}
+function lastIdx(arr){ for(var i=arr.length-1;i>=0;i--){ if(num(arr[i])!==null) return i; } return -1; }
+function monthsIn(y){ return lastIdx(fol(y,OWN))+1; }
+
+var dy=(function(){ var ys=years().filter(function(y){return monthsIn(y)>0;}); if(!ys.length) ys=years(); return ys.length>=2?[ys[ys.length-2],ys[ys.length-1]]:[ys[0],ys[0]]; })();
+var S={yA:dy[0], yB:dy[1], upto:0, view:"all", mainMetric:"net", trendMode:"index", trendSel:D.channels.slice(), tableMode:"cum", engCh:(D.channels.filter(function(c){return c!==OWN;})[0]||OWN)};
+var E={ds:"followers", year:dy[1], open:false, msg:"", ok:true};
+
+function maxUpto(){ return Math.max(1,Math.min(monthsIn(S.yA),monthsIn(S.yB))); }
+function clampUpto(){ var m=maxUpto(); if(!S.upto||S.upto>m) S.upto=m; }
+
+function netNew(y,c,i){
+  var cur=num(fol(y,c)[i]); var prev=i===0?base(y,c):num(fol(y,c)[i-1]);
+  return (cur===null||prev===null)?null:cur-prev;
+}
+function growth(y,c,i){
+  var cur=num(fol(y,c)[i]); var prev=i===0?base(y,c):num(fol(y,c)[i-1]);
+  if(cur===null||prev===null) return null;
+  if(prev<TINY) return "nb";
+  return (cur/prev-1)*100;
+}
+function period(start,end,n){
+  if(end===null) return null;
+  var r={start:start,end:end,net:start===null?null:end-start,total:null,avg:null,tiny:false};
+  if(start!==null){
+    if(start<TINY) r.tiny=true;
+    else { r.total=(end/start-1)*100; r.avg=(Math.pow(end/start,1/n)-1)*100; }
+  }
+  return r;
+}
+function chPeriod(y,c,n){ return period(base(y,c),num(fol(y,c)[n-1]),n); }
+function wins(a,b,n){
+  var w=0,t=0;
+  for(var i=0;i<n;i++){ var x=a(i),z=b(i); if(typeof x==="number"&&typeof z==="number"){ t++; if(z>x) w++; } }
+  return {w:w,t:t};
+}
+function extreme(arr,n,hi){
+  var best=null;
+  for(var i=0;i<n;i++){ var v=num(arr[i]); if(v===null) continue; if(!best||(hi?v>best.v:v<best.v)) best={v:v,i:i}; }
+  return best;
+}
+
+/* ---------- formatting ---------- */
+function esc(s){ return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
+function fi(n){ return n===null||n===undefined?"—":Math.round(n).toLocaleString("en-US"); }
+function fs(n){ return n===null||n===undefined?"—":(n>0?"+":n<0?"−":"")+Math.abs(Math.round(n)).toLocaleString("en-US"); }
+function fp(v,dp){ if(v===null||v===undefined) return "—"; if(v==="nb") return "n/a"; dp=dp===undefined?2:dp; return (v<0?"−":"")+Math.abs(v).toFixed(dp)+"%"; }
+function fsp(v,dp){ if(v===null||v===undefined) return "—"; if(v==="nb") return "n/a"; dp=dp===undefined?2:dp; return (v>0?"+":v<0?"−":"")+Math.abs(v).toFixed(dp)+"%"; }
+function cls(v){ return typeof v!=="number"?"flat":v>0?"up":v<0?"down":"flat"; }
+function chg(a,b){ return (typeof a==="number"&&typeof b==="number"&&a!==0)?(b/a-1)*100:null; }
+function short(n){ var a=Math.abs(n); return (n<0?"−":"")+(a>=10000?(a/1000).toFixed(1)+"k":Math.round(a).toLocaleString("en-US")); }
+function range(n){ return n===1?FULL[0]:FULL[0]+" to "+FULL[n-1]; }
+function chColor(c){ var i=D.channels.indexOf(c); return "var("+CHV[i<0?0:i%CHV.length]+")"; }
+
+/* ---------- charts (plain SVG, sized to the real container so text stays legible) ---------- */
+function niceStep(r,cnt){ var raw=r/cnt; var p=Math.pow(10,Math.floor(Math.log10(raw||1))); var m=raw/p; return (m<=1?1:m<=2?2:m<=5?5:10)*p; }
+function chartW(){ return Math.max(290,Math.min(1000,(app.clientWidth||900)-46)); }
+
+function barChart(o){
+  var W=o.W||chartW(), H=o.H||250, L=52, R=10, T=20, B=30;
+  var vals=[]; o.a.concat(o.b).forEach(function(v){ if(typeof v==="number") vals.push(v); });
+  var lo=Math.min(0,Math.min.apply(null,vals.length?vals:[0])), hi=Math.max(0,Math.max.apply(null,vals.length?vals:[1]));
+  if(hi===lo) hi=lo+1;
+  var st=niceStep(hi-lo,4); lo=Math.floor(lo/st)*st; hi=Math.ceil(hi/st)*st;
+  var y=function(v){ return T+(hi-v)/(hi-lo)*(H-T-B); };
+  var n=o.labels.length, gw=(W-L-R)/n, bw=Math.max(3,Math.min(28,(gw-8)/2));
+  var s='<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(o.aria)+'">';
+  for(var t=lo;t<=hi+st/2;t+=st){ s+='<line class="gl" x1="'+L+'" x2="'+(W-R)+'" y1="'+y(t)+'" y2="'+y(t)+'"/><text class="axt" x="'+(L-7)+'" y="'+(y(t)+3.5)+'" text-anchor="end">'+esc(o.axis(t))+'</text>'; }
+  s+='<line class="zl" x1="'+L+'" x2="'+(W-R)+'" y1="'+y(0)+'" y2="'+y(0)+'"/>';
+  var showV=bw>=17;
+  for(var i=0;i<n;i++){
+    var cx=L+gw*i+gw/2;
+    [[o.a[i],cx-bw-1,o.ca,o.na],[o.b[i],cx+1,o.cb,o.nb]].forEach(function(p){
+      var v=p[0];
+      if(v==="nb"){ s+='<text class="vt" x="'+(p[1]+bw/2)+'" y="'+(y(0)-4)+'" text-anchor="middle">n/a</text>'; return; }
+      if(typeof v!=="number") return;
+      var y0=y(Math.max(0,v)), h=Math.max(1,Math.abs(y(v)-y(0)));
+      s+='<rect x="'+p[1]+'" y="'+y0+'" width="'+bw+'" height="'+h+'" rx="2" style="fill:'+p[2]+'"><title>'+esc(p[3]+" "+o.labels[i]+": "+o.fmt(v))+'</title></rect>';
+      if(showV) s+='<text class="vt" x="'+(p[1]+bw/2)+'" y="'+(v>=0?y0-4:y0+h+11)+'" text-anchor="middle">'+esc(o.lab(v))+'</text>';
+    });
+    s+='<text class="axt" x="'+cx+'" y="'+(H-B+16)+'" text-anchor="middle">'+esc(o.labels[i])+'</text>';
+  }
+  return s+'</svg>';
+}
+
+function lineChart(o){
+  var maxLab=0; if(o.endLabels) o.lines.forEach(function(l){ if(l.label) maxLab=Math.max(maxLab,l.label.length); });
+  var W=o.W||chartW(), H=o.H||300, L=54, R=maxLab?Math.min(190,maxLab*6.4+16):14, T=16, B=30;
+  var vals=[]; o.lines.forEach(function(l){ l.v.forEach(function(v){ if(typeof v==="number"&&(!o.log||v>0)) vals.push(v); }); });
+  if(!vals.length) return '<div class="empty">No data for this selection.</div>';
+  var lo=Math.min.apply(null,vals), hi=Math.max.apply(null,vals), ticks=[], y;
+  if(o.log){
+    var a=Math.floor(Math.log10(lo)), b=Math.ceil(Math.log10(hi)); if(a===b) b++;
+    for(var d=a;d<=b;d++){ [1,2,5].forEach(function(m){ var t=m*Math.pow(10,d); if(t>=Math.pow(10,a)&&t<=Math.pow(10,b)) ticks.push(t); }); }
+    var la=a,lb=b; y=function(v){ return T+(lb-Math.log10(v))/(lb-la)*(H-T-B); };
+  } else {
+    var pad=(hi-lo)*0.08||1; lo-=pad; hi+=pad; var st=niceStep(hi-lo,5); lo=Math.floor(lo/st)*st; hi=Math.ceil(hi/st)*st;
+    for(var t=lo;t<=hi+st/2;t+=st) ticks.push(t);
+    y=function(v){ return T+(hi-v)/(hi-lo)*(H-T-B); };
+  }
+  var n=o.x.length, x=function(i){ return L+(n===1?(W-L-R)/2:i*(W-L-R)/(n-1)); };
+  var s='<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(o.aria)+'">';
+  ticks.forEach(function(t){ s+='<line class="gl" x1="'+L+'" x2="'+(W-R)+'" y1="'+y(t)+'" y2="'+y(t)+'"/><text class="axt" x="'+(L-7)+'" y="'+(y(t)+3.5)+'" text-anchor="end">'+esc(o.axis(t))+'</text>'; });
+  for(var i=0;i<n;i++) s+='<text class="axt" x="'+x(i)+'" y="'+(H-B+16)+'" text-anchor="middle">'+esc(o.x[i])+'</text>';
+  var ends=[];
+  o.lines.forEach(function(l){
+    var d="",last=null;
+    l.v.forEach(function(v,i){ if(typeof v!=="number"||(o.log&&v<=0)) return; d+=(d?"L":"M")+x(i).toFixed(1)+" "+y(v).toFixed(1); last={i:i,v:v}; });
+    if(!d) return;
+    s+='<path d="'+d+'" fill="none" style="stroke:'+l.color+'" stroke-width="'+(l.dash?1.6:2.6)+'"'+(l.dash?' stroke-dasharray="5 4"':'')+' stroke-linejoin="round" stroke-linecap="round"><title>'+esc(l.name)+'</title></path>';
+    l.v.forEach(function(v,i){ if(typeof v!=="number"||(o.log&&v<=0)) return; s+='<circle cx="'+x(i)+'" cy="'+y(v)+'" r="'+(l.dash?2:2.8)+'" style="fill:'+l.color+'"><title>'+esc(l.name+", "+o.x[i]+": "+o.fmt(v))+'</title></circle>'; });
+    if(o.endLabels&&last) ends.push({y:y(last.v),x:x(last.i),t:l.label,c:l.color});
+  });
+  ends.sort(function(p,q){return p.y-q.y;});
+  for(var k=1;k<ends.length;k++){ if(ends[k].y-ends[k-1].y<13) ends[k].y=ends[k-1].y+13; }
+  var over=ends.length?ends[ends.length-1].y-(H-B):0;             // keep labels inside the plot
+  if(over>0){ for(var q=ends.length-1;q>=0;q--){ ends[q].y-=over; if(q>0&&ends[q].y-ends[q-1].y>=13) break; if(q>0) over=ends[q-1].y-(ends[q].y-13); if(over<=0) break; } }
+  ends.forEach(function(e){ s+='<text class="el" x="'+(e.x+8)+'" y="'+(e.y+3.5)+'" style="fill:'+e.c+'">'+esc(e.t)+'</text>'; });
+  return s+'</svg>';
+}
+
+function hBars(o){
+  var W=o.W||chartW(), rowH=40, L=Math.min(170,W*0.34), R=76, T=6, H=T+o.items.length*rowH+6;
+  var vals=o.items.map(function(it){return it.v;}).filter(function(v){return typeof v==="number";});
+  var lo=Math.min(0,Math.min.apply(null,vals)), hi=Math.max(0,Math.max.apply(null,vals)); if(hi===lo) hi=lo+1;
+  var x=function(v){ return L+(v-lo)/(hi-lo)*(W-L-R); };
+  var s='<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(o.aria)+'">';
+  s+='<line class="zl" x1="'+x(0)+'" x2="'+x(0)+'" y1="'+T+'" y2="'+(H-4)+'"/>';
+  o.items.forEach(function(it,i){
+    var cy=T+i*rowH+rowH/2;
+    s+='<text class="axt" x="'+(L-10)+'" y="'+(cy+4)+'" text-anchor="end" style="font-size:12px;fill:var(--ink)">'+esc(it.name)+'</text>';
+    if(typeof it.v!=="number") return;
+    var x0=x(Math.min(0,it.v)), w=Math.max(2,Math.abs(x(it.v)-x(0)));
+    s+='<rect x="'+x0+'" y="'+(cy-11)+'" width="'+w+'" height="22" rx="3" style="fill:'+it.c+'"><title>'+esc(it.name+": "+o.fmt(it.v))+'</title></rect>';
+    s+='<text x="'+(x(Math.max(0,it.v))+8)+'" y="'+(cy+4)+'" style="font-size:12.5px;font-weight:650;fill:var(--ink);font-family:Inter,sans-serif">'+esc(o.fmt(it.v))+'</text>';
+  });
+  return s+'</svg>';
+}
+
+/* ---------- sections ---------- */
+function kpi(k,v,d,c){ return '<div class="kpi"><div class="k">'+k+'</div><div class="v'+(c?" "+c:"")+'">'+v+'</div>'+(d?'<div class="d">'+d+'</div>':'')+'</div>'; }
+function legendYears(){ return '<div class="legend"><span><i class="sw" style="background:var(--ya)"></i>'+esc(S.yA)+'</span><span><i class="sw" style="background:var(--yb)"></i>'+esc(S.yB)+'</span></div>'; }
+function seg(act,opts,cur){ return '<div class="seg" role="group">'+opts.map(function(o){ return '<button data-act="'+act+'" data-v="'+esc(o[0])+'" aria-pressed="'+(o[0]===cur)+'">'+esc(o[1])+'</button>'; }).join("")+'</div>'; }
+function comps(){ return (D.competitors&&D.competitors[S.yB])||null; }
+
+function headline(n){
+  var p=chPeriod(S.yB,OWN,n), q=chPeriod(S.yA,OWN,n);
+  if(!p||p.net===null) return "";
+  var c=chg(q&&q.net,p.net), dir="";
+  if(typeof c==="number") dir=", "+Math.abs(c).toFixed(0)+"% "+(c<0?"fewer":"more")+" than the same months of "+S.yA;
+  var ew=wins(function(i){return num(eng(S.yA,OWN)[i]);},function(i){return num(eng(S.yB,OWN)[i]);},n);
+  var s=(n===1?"In January ":"From January to "+FULL[n-1]+" ")+S.yB+", "+OWN+" added <strong>"+fi(p.net)+" followers</strong>"+dir+".";
+  if(ew.t){
+    if(ew.w===0) s+=" Its engagement rate was lower than the same month of "+S.yA+" in <strong>every month</strong>.";
+    else if(ew.w===ew.t) s+=" Its engagement rate beat the same month of "+S.yA+" in <strong>every month</strong>.";
+    else s+=" Its engagement rate beat the same month of "+S.yA+" in <strong>"+ew.w+" of "+ew.t+" months</strong>.";
+  }
+  return s;
+}
+
+function overview(n){
+  var C=comps(), rivals=C?C.pages.join(" and "):"key competitors";
+  return '<section class="sec" id="overview"><div class="obj">'+
+    '<div><h3>What this report covers</h3><ul>'+
+      '<li>How each IPASS social channel\'s audience grew in '+esc(S.yB)+', compared with the same months of '+esc(S.yA)+'.</li>'+
+      '<li>Whether engagement on each channel improved or declined year over year.</li>'+
+      '<li>A focused view of '+esc(OWN)+', the primary channel being monitored.</li>'+
+      '<li>How '+esc(OWN)+'\'s '+esc(S.yB)+' audience growth compares with '+esc(rivals)+'.</li>'+
+    '</ul></div>'+
+    '<div><h3>How to read it</h3><ul>'+
+      '<li>Both years are measured over the same months, '+range(n)+', so neither year looks bigger simply by having more months.</li>'+
+      '<li>Engagement rates are shown exactly as reported by each platform. They aren\'t averaged, and since every platform calculates them differently, channels aren\'t ranked against each other on engagement.</li>'+
+      '<li>Follower growth is recalculated from follower counts, starting from the December before each year. Where a December count wasn\'t recorded, it was worked out from the January growth rate in the source data.</li>'+
+    '</ul></div></div>'+
+    (D.note?'<div class="flag">'+esc(D.note)+'</div>':'')+
+  '</section>';
+}
+
+function mainSection(n){
+  var p=chPeriod(S.yB,OWN,n), q=chPeriod(S.yA,OWN,n);
+  var yoy=chg(num(fol(S.yA,OWN)[n-1]),num(fol(S.yB,OWN)[n-1]));
+  var netC=chg(q&&q.net,p&&p.net);
+  var lbls=MON.slice(0,n);
+  var isNet=S.mainMetric==="net";
+  var A=[],B=[]; for(var i=0;i<n;i++){ A.push(isNet?netNew(S.yA,OWN,i):growth(S.yA,OWN,i)); B.push(isNet?netNew(S.yB,OWN,i):growth(S.yB,OWN,i)); }
+  var fw=wins(function(i){return netNew(S.yA,OWN,i);},function(i){return netNew(S.yB,OWN,i);},n);
+  var fchart=barChart({labels:lbls,a:A,b:B,ca:"var(--ya)",cb:"var(--yb)",na:S.yA,nb:S.yB,aria:"Monthly "+(isNet?"new followers":"follower growth")+", "+S.yA+" and "+S.yB,
+    fmt:isNet?fi:function(v){return fp(v);}, lab:isNet?short:function(v){return v.toFixed(2)+"%";}, axis:isNet?short:function(v){return v.toFixed(1)+"%";}});
+
+  var ea=eng(S.yA,OWN).slice(0,n).map(num), eb=eng(S.yB,OWN).slice(0,n).map(num);
+  var ew=wins(function(i){return ea[i];},function(i){return eb[i];},n);
+  var bA=extreme(ea,n,true), bB=extreme(eb,n,true), wA=extreme(ea,n,false), wB=extreme(eb,n,false);
+  var echart=barChart({labels:lbls,a:ea,b:eb,ca:"var(--ya)",cb:"var(--yb)",na:S.yA,nb:S.yB,aria:"Monthly engagement rate, "+S.yA+" and "+S.yB,
+    fmt:function(v){return fp(v);}, lab:function(v){return v.toFixed(1)+"%";}, axis:function(v){return v.toFixed(0)+"%";}});
+
+  return '<section class="sec" id="main"><div class="sec-h"><h2 class="disp">'+esc(OWN)+'</h2></div>'+
+  '<p class="sec-p">The primary channel being monitored, '+esc(S.yB)+' against '+esc(S.yA)+', '+range(n)+'.</p>'+
+  '<div class="card" data-card="main-followers"><div class="card-h"><div><h3>Follower growth</h3><p>New followers each month, both years side by side.</p></div>'+
+    seg("mainMetric",[["net","New followers"],["pct","Growth rate"]],S.mainMetric)+'</div>'+
+    '<div class="kpis">'+
+      kpi("Followers at end of "+FULL[n-1],fi(p&&p.end),'<span class="'+cls(yoy)+'">'+fsp(yoy,1)+'</span> vs '+fi(num(fol(S.yA,OWN)[n-1]))+' in '+esc(S.yA))+
+      kpi("New followers, "+range(n),fi(p&&p.net),'<span class="'+cls(netC)+'">'+fsp(netC,1)+'</span> vs '+fi(q&&q.net)+' in '+esc(S.yA))+
+      kpi("Total growth this period",fp(p&&p.total),fp(q&&q.tiny?"nb":(q&&q.total))+' in '+esc(S.yA))+
+      kpi("Average monthly growth",fp(p&&p.avg),fp(q&&q.tiny?"nb":(q&&q.avg))+' in '+esc(S.yA))+
+    '</div>'+legendYears()+'<div class="scroll">'+fchart+'</div>'+
+    '<div class="callout">'+esc(S.yB)+' added more followers than the same month of '+esc(S.yA)+' in <b>'+fw.w+' of '+fw.t+' months</b>.</div>'+
+    '<div class="note"><b>How this is measured.</b> New followers is the change in follower count from the previous month (January is measured from the December before). Growth rate is that change as a percentage of the previous month\'s count. Average monthly growth is the steady monthly rate that takes the page from its December count to its '+FULL[n-1]+' count.</div>'+
+  '</div>'+
+  '<div class="card" data-card="main-engagement"><div class="card-h"><div><h3>Engagement</h3><p>Monthly engagement rate as reported by the platform, both years side by side.</p></div></div>'+
+    '<div class="kpis">'+
+      kpi("Months higher than "+esc(S.yA),ew.w+" of "+ew.t,"Same month, year over year")+
+      kpi("Best month, "+esc(S.yB),bB?fp(bB.v):"—",bB?"In "+FULL[bB.i]+(bA?" ("+esc(S.yA)+" best: "+fp(bA.v)+" in "+FULL[bA.i]+")":""):"")+
+      kpi("Weakest month, "+esc(S.yB),wB?fp(wB.v):"—",wB?"In "+FULL[wB.i]+(wA?" ("+esc(S.yA)+" weakest: "+fp(wA.v)+" in "+FULL[wA.i]+")":""):"")+
+    '</div>'+legendYears()+'<div class="scroll">'+echart+'</div>'+
+    '<div class="note"><b>Why there\'s no average.</b> Engagement rates are fractions, and months differ in size, so averaging them gives a misleading figure. Each month is shown as reported, and the months-higher count summarises the year without averaging.</div>'+
+  '</div></section>';
+}
+
+function channelsSection(n){
+  var xs=MON.slice(0,n), lines=[];
+  var idx=S.trendMode==="index", one=S.trendSel.length===1;
+  D.channels.forEach(function(c){
+    if(S.trendSel.indexOf(c)<0) return;
+    [S.yA,S.yB].forEach(function(y,k){
+      var f=fol(y,c).slice(0,n).map(num), j=num(f[0]);
+      var v=f.map(function(x){ return x===null?null:(idx?(j?x/j*100:null):x); });
+      lines.push({name:c+" "+y,label:one?y:(k?c:""),color:chColor(c),dash:k===0,v:v});
+    });
+  });
+  var chart=lineChart({x:xs,lines:lines,log:!idx,endLabels:S.trendSel.length<=3,
+    aria:"Follower trend by channel",fmt:idx?function(v){return v.toFixed(1);}:fi,axis:idx?function(v){return v.toFixed(0);}:short});
+
+  var cum=S.tableMode==="cum";
+  var rows=D.channels.map(function(c){
+    var p=chPeriod(S.yB,c,n), q=chPeriod(S.yA,c,n);
+    var ea=num(fol(S.yA,c)[n-1]), eb=num(fol(S.yB,c)[n-1]), y=chg(ea,eb);
+    var na=q&&q.net, nb=p&&p.net, nc=chg(na,nb);
+    var ga=q&&(q.tiny?"nb":(cum?q.total:q.avg)), gb=p&&(p.tiny?"nb":(cum?p.total:p.avg));
+    return '<tr'+(c===OWN?' class="own"':'')+'><td class="nm"><span class="sw" style="background:'+chColor(c)+'"></span>'+esc(c)+'</td>'+
+      '<td>'+fi(ea)+'</td><td>'+fi(eb)+'</td><td class="'+cls(y)+'">'+fsp(y,1)+'</td>'+
+      '<td>'+fi(na===null||na===undefined?null:(cum?na:na/n))+'</td><td>'+fi(nb===null||nb===undefined?null:(cum?nb:nb/n))+'</td><td class="'+cls(nc)+'">'+fsp(nc,1)+'</td>'+
+      '<td>'+fp(ga,cum?1:2)+'</td><td>'+fp(gb,cum?1:2)+'</td></tr>';
+  }).join("");
+
+  var ec=S.engCh, ea=eng(S.yA,ec).slice(0,n).map(num), eb=eng(S.yB,ec).slice(0,n).map(num);
+  var echart=barChart({labels:xs,a:ea,b:eb,ca:"var(--ya)",cb:chColor(ec),na:S.yA,nb:S.yB,aria:"Monthly engagement rate for "+ec,
+    fmt:function(v){return fp(v);},lab:function(v){return v.toFixed(1)+"%";},axis:function(v){return v.toFixed(0)+"%";}});
+  var erows=D.channels.map(function(c){
+    var a=eng(S.yA,c).slice(0,n).map(num), b=eng(S.yB,c).slice(0,n).map(num);
+    var w=wins(function(i){return a[i];},function(i){return b[i];},n), xa=extreme(a,n,true), xb=extreme(b,n,true);
+    return '<tr'+(c===OWN?' class="own"':'')+'><td class="nm"><span class="sw" style="background:'+chColor(c)+'"></span>'+esc(c)+'</td><td>'+w.w+' of '+w.t+'</td>'+
+      '<td>'+(xa?fp(xa.v)+' ('+MON[xa.i]+')':'—')+'</td><td>'+(xb?fp(xb.v)+' ('+MON[xb.i]+')':'—')+'</td></tr>';
+  }).join("");
+
+  return '<section class="sec" id="channels"><div class="sec-h"><h2 class="disp">All channels</h2></div>'+
+  '<p class="sec-p">Every IPASS channel, '+esc(S.yB)+' against '+esc(S.yA)+', '+range(n)+'.</p>'+
+  '<div class="card" data-card="channel-trend"><div class="card-h"><div><h3>Follower growth by channel</h3><p>'+(idx?"Each line starts at 100 in January, so channels of very different sizes can be compared directly.":"Actual follower counts on a log scale, so small channels stay visible next to large ones.")+'</p></div>'+
+    seg("trendMode",[["index","Indexed (January = 100)"],["log","Log scale"]],S.trendMode)+'</div>'+
+    '<div class="chips">'+D.channels.map(function(c){ return '<button class="chip" data-act="trendSel" data-v="'+esc(c)+'" aria-pressed="'+(S.trendSel.indexOf(c)>=0)+'"><span class="dot" style="background:'+chColor(c)+'"></span>'+esc(c)+'</button>'; }).join("")+'</div>'+
+    '<div class="legend"><span><i class="ln dash"></i>'+esc(S.yA)+'</span><span><i class="ln"></i>'+esc(S.yB)+'</span></div>'+
+    '<div class="scroll">'+chart+'</div>'+
+    '<div class="note"><b>Reading the chart.</b> Dashed lines are '+esc(S.yA)+', solid lines are '+esc(S.yB)+'. In the indexed view, a line ending at 110 means that channel grew 10% between January and '+FULL[n-1]+'. Use the channel buttons to narrow the view; with three or fewer selected, each line is labelled, and with one selected you can compare its two years directly.</div>'+
+  '</div>'+
+  '<div class="card" data-card="channel-table"><div class="card-h"><div><h3>Cumulative and average</h3><p>'+(cum?"Totals for "+range(n)+", same months in both years.":"The same period expressed per month.")+'</p></div>'+
+    seg("tableMode",[["cum","Cumulative"],["avg","Average per month"]],S.tableMode)+'</div>'+
+    '<div class="scroll"><table><thead><tr><th>Channel</th><th>Followers<br>'+MON[n-1]+' '+esc(S.yA)+'</th><th>Followers<br>'+MON[n-1]+' '+esc(S.yB)+'</th><th>Year over<br>year</th>'+
+    '<th>'+(cum?"New followers":"New followers<br>per month")+'<br>'+esc(S.yA)+'</th><th>'+(cum?"New followers":"New followers<br>per month")+'<br>'+esc(S.yB)+'</th><th>Change</th>'+
+    '<th>'+(cum?"Total growth":"Average monthly<br>growth")+'<br>'+esc(S.yA)+'</th><th>'+(cum?"Total growth":"Average monthly<br>growth")+'<br>'+esc(S.yB)+'</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<div class="note"><b>How this is measured.</b> '+(cum
+      ?'Cumulative figures run from the December before each year to '+FULL[n-1]+'. New followers is the total gained over those months, and total growth is that gain as a percentage of the December count.'
+      :'New followers per month is the cumulative total divided by '+n+' months. Average monthly growth is the steady monthly rate that takes each channel from its December count to its '+FULL[n-1]+' count, so one unusual month can\'t distort it.')+
+    ' Growth shows n/a where the starting count was below '+TINY+' followers, because a percentage off a tiny base (such as a newly launched page) is meaningless. Engagement isn\'t included here: its rates are shown month by month in the next card, as agreed, rather than averaged.</div>'+
+  '</div>'+
+  '<div class="card" data-card="channel-engagement"><div class="card-h"><div><h3>Engagement by channel</h3><p>Each channel compared with itself, month by month.</p></div>'+
+    '<select class="sel" data-ch="engCh" aria-label="Channel">'+D.channels.map(function(c){ return '<option'+(c===ec?' selected':'')+'>'+esc(c)+'</option>'; }).join("")+'</select></div>'+
+    '<div class="legend"><span><i class="sw" style="background:var(--ya)"></i>'+esc(S.yA)+'</span><span><i class="sw" style="background:'+chColor(ec)+'"></i>'+esc(S.yB)+'</span></div>'+
+    '<div class="scroll">'+echart+'</div>'+
+    '<div class="scroll" style="margin-top:14px"><table><thead><tr><th>Channel</th><th>Months higher<br>in '+esc(S.yB)+'</th><th>Best month<br>'+esc(S.yA)+'</th><th>Best month<br>'+esc(S.yB)+'</th></tr></thead><tbody>'+erows+'</tbody></table></div>'+
+    '<div class="note"><b>Why channels aren\'t ranked.</b> Each platform calculates engagement rate its own way, so a higher rate on one channel doesn\'t mean it outperformed another. What\'s comparable is a channel against its own previous year.</div>'+
+  '</div></section>';
+}
+
+function competitorSection(n){
+  var C=comps();
+  var head='<section class="sec" id="competitors"><div class="sec-h"><h2 class="disp">Competitor benchmark</h2></div>';
+  if(!C) return head+'<div class="card"><div class="empty">No competitor figures for '+esc(S.yB)+' yet. Add them under Update figures.</div></div></section>';
+  var pages=[{name:OWN,start:base(S.yB,OWN),arr:fol(S.yB,OWN)}].concat(C.pages.map(function(p){ return {name:p,start:compBase(S.yB,p),arr:C.followers[p]||[]}; }));
+  var m=n; pages.forEach(function(p){ m=Math.min(m,lastIdx(p.arr)+1); });
+  if(m<1) return head+'<div class="card"><div class="empty">Competitor figures for '+esc(S.yB)+' are incomplete.</div></div></section>';
+  pages.forEach(function(p,i){ p.c="var("+CMPV[i%CMPV.length]+")"; p.r=period(p.start,num(p.arr[m-1]),m); });
+  var prevY=String(+S.yB-1);
+  var tiles=pages.map(function(p){
+    return '<div class="tile" style="border-top-color:'+p.c+'"><div class="n">'+esc(p.name)+'</div>'+
+      '<div class="v">'+fp(p.r&&(p.r.tiny?"nb":p.r.avg))+'</div><div class="u">average growth per month</div>'+
+      '<div class="d">'+fsp(p.r&&(p.r.tiny?"nb":p.r.total))+' in total, '+fs(p.r&&p.r.net)+' followers</div></div>';
+  }).join("");
+  var bars=hBars({items:pages.map(function(p){return {name:p.name,v:p.r&&!p.r.tiny?p.r.avg:null,c:p.c};}),aria:"Average monthly audience growth",fmt:function(v){return v.toFixed(2)+"%";}});
+  var x=["Dec"].concat(MON.slice(0,m));
+  var lines=pages.map(function(p){ var v=[p.start?100:null].concat(p.arr.slice(0,m).map(function(a){ a=num(a); return a===null||!p.start?null:a/p.start*100; })); return {name:p.name,label:p.name,color:p.c,dash:false,v:v}; });
+  var line=lineChart({x:x,lines:lines,log:false,endLabels:true,aria:"Indexed follower trend, December = 100",fmt:function(v){return v.toFixed(2);},axis:function(v){return v.toFixed(0);}});
+  var rows=pages.map(function(p,i){
+    return '<tr'+(i===0?' class="own"':'')+'><td class="nm"><span class="sw" style="background:'+p.c+'"></span>'+esc(p.name)+'</td><td>'+fi(p.start)+'</td><td>'+fi(p.r&&p.r.end)+'</td><td>'+fs(p.r&&p.r.net)+'</td><td>'+fsp(p.r&&(p.r.tiny?"nb":p.r.total))+'</td><td>'+fp(p.r&&(p.r.tiny?"nb":p.r.avg))+'</td></tr>';
+  }).join("");
+  var ownR=pages[0].r, lead=pages.slice().filter(function(p){return p.r&&typeof p.r.avg==="number";}).sort(function(a,b){return b.r.avg-a.r.avg;});
+  var sum=lead.length?lead.map(function(p,i){ return (i===0?"<b>"+esc(p.name)+"</b> grew fastest":esc(p.name)+(i===lead.length-1?" was slowest":" came next"))+" at "+fp(p.r.avg)+" a month"; }).join(", ")+".":"";
+  return head+'<p class="sec-p">'+esc(OWN)+' against '+esc(C.pages.join(" and "))+', December '+esc(prevY)+' to '+FULL[m-1]+' '+esc(S.yB)+'.</p>'+
+  '<div class="card" data-card="competitor-growth"><div class="card-h"><div><h3>Average audience growth</h3><p>How fast each page\'s followers grew, per month on average.</p></div></div>'+
+    '<div class="tiles">'+tiles+'</div><div class="scroll">'+bars+'</div>'+
+    (sum?'<div class="callout">'+sum+'</div>':'')+
+    '<div class="note"><b>How this is measured.</b> Average growth per month is the steady monthly rate that takes each page from its December '+esc(prevY)+' follower count to its '+FULL[m-1]+' count. Unlike a plain average of monthly percentages, one unusual month can\'t distort it.'+(m<n?' Competitor figures run to '+FULL[m-1]+', so this comparison stops there.':'')+'</div>'+
+  '</div>'+
+  '<div class="card" data-card="competitor-trend"><div class="card-h"><div><h3>Growth over the year</h3><p>Each page starts at 100 in December, so a line at 105 means 5% more followers than at the start of the year.</p></div></div>'+
+    '<div class="scroll">'+line+'</div>'+
+    '<div class="scroll" style="margin-top:14px"><table><thead><tr><th>Page</th><th>Followers<br>Dec '+esc(prevY)+'</th><th>Followers<br>'+MON[m-1]+' '+esc(S.yB)+'</th><th>Net new</th><th>Total growth</th><th>Average<br>per month</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+  '</div></section>';
+}
+
+/* ---------- editor (owner only) ---------- */
+function linkFor(v){
+  var p=["view="+v,"ya="+S.yA,"yb="+S.yB];   // years pinned; months follow the latest data
+  var baseUrl=D.siteUrl||D.url||(location.origin+location.pathname);
+  return baseUrl+"#"+p.join("&");
+}
+function editor(){
+  var ys=years(), y=E.year, rows=[], hasBase=true, label="";
+  if(E.ds==="followers"){ rows=D.channels; label="Followers (December is the count at the end of the previous year)"; }
+  else if(E.ds==="engagement"){ rows=D.channels; hasBase=false; label="Engagement rate % as reported by each platform"; }
+  else { var C=D.competitors[y]; rows=C?C.pages:[]; label="Competitor followers (December is the count at the end of the previous year)"; }
+  function cell(r,col){
+    var v;
+    if(E.ds==="followers") v=col==="b"?(D.baselines[y]||{})[r]:((D.followers[y]||{})[r]||[])[col];
+    else if(E.ds==="engagement") v=((D.engagement[y]||{})[r]||[])[col];
+    else { var C=D.competitors[y]||{}; v=col==="b"?(C.baseline||{})[r]:((C.followers||{})[r]||[])[col]; }
+    var ph=""; if(col==="b"){ var fb=E.ds==="competitors"?(function(){ var P=D.competitors[String(+y-1)]; return num(P&&P.followers&&P.followers[r]&&P.followers[r][11]); })():num(fol(String(+y-1),r)[11]); if(fb!==null) ph=' placeholder="'+fb+'"'; }
+    return '<input class="gcell'+(col==="b"?" base":"")+'"'+ph+' data-row="'+esc(r)+'" data-col="'+col+'" value="'+(v===null||v===undefined?"":esc(v))+'" inputmode="decimal" aria-label="'+esc(r+" "+(col==="b"?"December":MON[col]))+'">';
+  }
+  var grid='<div class="scroll"><table class="grid"><thead><tr><th></th>'+(hasBase?'<th>Dec</th>':'')+MON.map(function(m){return '<th>'+m+'</th>';}).join("")+'</tr></thead><tbody>'+
+    rows.map(function(r){ return '<tr><td>'+esc(r)+'</td>'+(hasBase?'<td>'+cell(r,"b")+'</td>':'')+MON.map(function(m,i){return '<td>'+cell(r,i)+'</td>';}).join("")+'</tr>'; }).join("")+'</tbody></table></div>';
+  var links=["all"].concat(Object.keys(SECTIONS)).map(function(v){
+    var u=linkFor(v);
+    return '<div class="pick"><div style="min-width:0"><div style="font-weight:600;font-size:12.5px">'+esc(SECTIONS[v]||"Whole report")+'</div><div class="pick-u">'+esc(u)+'</div></div><button class="btn sec" data-act="copy" data-v="'+esc(u)+'">Copy link</button></div>';
+  }).join("");
+  return '<details class="ed" id="ed"'+(E.open?" open":"")+'><summary>Update figures</summary><div class="edbody">'+
+    '<div class="edrow"><div class="grp"><span class="lab">Data</span>'+seg("eds",[["followers","Followers"],["engagement","Engagement"],["competitors","Competitors"]],E.ds)+'</div>'+
+    '<div class="grp"><span class="lab">Year</span><select class="sel" data-ch="eyear">'+ys.map(function(v){return '<option'+(v===y?' selected':'')+'>'+esc(v)+'</option>';}).join("")+'</select></div>'+
+    '<button class="btn sec" data-act="addyear">Add '+(+ys[ys.length-1]+1)+'</button></div>'+
+    '<p class="sub" style="margin-bottom:10px">'+label+'. Type into a cell, or paste a block from Excel. If the block includes the name column, rows are matched by name.</p>'+grid+
+    (E.ds==="competitors"?'<div class="edrow"><input class="tin" id="newcomp" placeholder="Competitor name"><button class="btn sec" data-act="addcomp">Add competitor</button></div>':'')+
+    '<div class="grp" style="margin-top:16px"><span class="lab">Data note, shown at the top of the report</span><textarea id="note" placeholder="For example: September figures are still being collected.">'+esc(D.note||"")+'</textarea></div>'+
+    '<div class="edrow"><button class="btn" data-act="save"'+(dirty?"":" disabled")+'>Save and publish</button>'+(downloads?'<button class="btn sec" data-act="webexport">Download for website</button>':'')+'</div>'+'<p class="sub" style="margin-top:6px">Notion can\'t display claude.ai pages, so the embeddable copy lives on your website. After publishing changes here, click <b>Download for website</b> and upload the file to the <b>public</b> folder on GitHub, replacing report.html.</p>'+
+    '<div class="msg '+(E.ok?"ok":"err")+'" id="msg">'+esc(E.msg||(dirty?"You have unsaved changes. Publish to show them to everyone with the link.":""))+'</div>'+
+    '<h3 style="font-size:14px;margin:22px 0 4px">Section links for Notion</h3>'+(D.siteUrl?'':'<p class="sub">Set the website address to get embeddable links.</p>')+'<p class="sub">Each link opens just that part of the report, trimmed to sit cleanly in an embed. The years stay fixed at '+esc(S.yA)+' vs '+esc(S.yB)+'; the months update by themselves as new figures are published.</p>'+links+
+  '</div></details>';
+}
+
+/* ---------- render ---------- */
+function render(){
+  clampUpto();
+  var n=S.upto, ys=years(), solo=S.view!=="all";
+  document.body.classList.toggle("solo",solo);
+  var h='';
+  if(!solo){
+    h+='<header><h1 class="disp">Social media performance, '+esc(S.yA)+' vs '+esc(S.yB)+'</h1><p class="sub">IPASS Processing social channels, '+range(n)+'</p>'+
+      '<p class="lede disp">'+headline(n)+'</p></header>'+
+      '<div class="controls"><div class="grp"><span class="lab">Compare</span><div style="display:flex;gap:6px;align-items:center">'+
+      '<select class="sel" data-ch="yA" aria-label="Earlier year">'+ys.map(function(v){return '<option'+(v===S.yA?' selected':'')+'>'+v+'</option>';}).join("")+'</select><span class="lab">with</span>'+
+      '<select class="sel" data-ch="yB" aria-label="Later year">'+ys.map(function(v){return '<option'+(v===S.yB?' selected':'')+'>'+v+'</option>';}).join("")+'</select></div></div>'+
+      '<div class="grp"><span class="lab">Months included</span><select class="sel" data-ch="upto" aria-label="Months included">'+
+      MON.slice(0,maxUpto()).map(function(m,i){return '<option value="'+(i+1)+'"'+(i+1===n?' selected':'')+'>January to '+FULL[i]+'</option>';}).join("")+'</select></div></div>';
+    h+=overview(n)+mainSection(n)+channelsSection(n)+competitorSection(n);
+    if(canEdit&&artifact) h+=editor();
+  } else {
+    var v=S.view, fn=v==="overview"?overview:v.indexOf("main")===0?mainSection:v.indexOf("channel")===0?channelsSection:competitorSection;
+    var body=fn(n);
+    if(v.indexOf("-")>0){ var tmp=document.createElement("div"); tmp.innerHTML=body; var cd=tmp.querySelector('[data-card="'+v+'"]'); body=cd?cd.outerHTML:body; }
+    h+='<header><h1 class="disp" style="font-size:22px">'+esc(SECTIONS[v]||"")+'</h1><p class="sub">'+esc(S.yA)+' vs '+esc(S.yB)+', '+range(n)+'</p></header>'+body;
+  }
+  app.innerHTML='<div class="wrap">'+h+'</div>';
+}
+
+/* ---------- interaction ---------- */
+function msg(t,ok){ E.msg=t; E.ok=ok!==false; var m=document.getElementById("msg"); if(m){ m.textContent=t; m.className="msg "+(E.ok?"ok":"err"); } }
+function markDirty(){ dirty=true; var b=app.querySelector('[data-act="save"]'); if(b) b.disabled=false; }
+function parseNum(s){
+  s=String(s==null?"":s).replace(/\s+/g,"").replace(/%$/,"");
+  if(s==="") return null;
+  if(/^-?\d+,\d{1,2}$/.test(s)) s=s.replace(",",".");   // "1,14" typed as a decimal
+  else s=s.replace(/,/g,"");                              // "445,298" thousands separators
+  var v=parseFloat(s); return isNaN(v)?null:v;
+}
+function setCell(row,col,v){
+  var y=E.year;
+  if(E.ds==="followers"){
+    if(col==="b"){ (D.baselines[y]=D.baselines[y]||{})[row]=v; }
+    else { var f=(D.followers[y]=D.followers[y]||{}); f[row]=f[row]||new Array(12).fill(null); f[row][col]=v; }
+  } else if(E.ds==="engagement"){
+    var e=(D.engagement[y]=D.engagement[y]||{}); e[row]=e[row]||new Array(12).fill(null); e[row][col]=v;
+  } else {
+    var C=D.competitors[y]; if(!C) return;
+    if(col==="b") C.baseline[row]=v; else { C.followers[row]=C.followers[row]||new Array(12).fill(null); C.followers[row][col]=v; }
+  }
+}
+function edRows(){ return E.ds==="competitors"?((D.competitors[E.year]||{}).pages||[]):D.channels; }
+
+app.addEventListener("click",function(e){
+  var t=e.target.closest("[data-act]"); if(!t) return;
+  var a=t.getAttribute("data-act"), v=t.getAttribute("data-v");
+  if(a==="mainMetric"){ S.mainMetric=v; render(); }
+  else if(a==="tableMode"){ S.tableMode=v; render(); }
+  else if(a==="trendMode"){ S.trendMode=v; render(); }
+  else if(a==="trendSel"){ var i=S.trendSel.indexOf(v); if(i>=0){ if(S.trendSel.length>1) S.trendSel.splice(i,1); } else S.trendSel.push(v); render(); }
+  else if(a==="eds"){ E.ds=v; E.msg=""; render(); }
+  else if(a==="addyear"){
+    var ys=years(), ny=String(+ys[ys.length-1]+1), latest=D.competitors[ys[ys.length-1]];
+    D.followers[ny]={}; D.engagement[ny]={}; D.baselines[ny]={};
+    D.channels.forEach(function(c){ D.followers[ny][c]=new Array(12).fill(null); D.engagement[ny][c]=new Array(12).fill(null); });
+    D.competitors[ny]={pages:latest?latest.pages.slice():[],baseline:{},followers:{}};
+    D.competitors[ny].pages.forEach(function(p){ D.competitors[ny].followers[p]=new Array(12).fill(null); });
+    E.year=ny; markDirty(); render(); msg("Added "+ny+". Fill in its figures, then publish.",true);
+  }
+  else if(a==="addcomp"){
+    var inp=document.getElementById("newcomp"), name=(inp&&inp.value||"").trim(), C=D.competitors[E.year];
+    if(!name) return;
+    if(!C) C=D.competitors[E.year]={pages:[],baseline:{},followers:{}};
+    if(C.pages.indexOf(name)<0){ C.pages.push(name); C.followers[name]=new Array(12).fill(null); }
+    markDirty(); render(); msg("Added "+name+". Fill in its figures, then publish.",true);
+  }
+  else if(a==="copy"){
+    if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(v).then(function(){ t.textContent="Copied"; setTimeout(function(){t.textContent="Copy link";},1400); },function(){ t.textContent="Copy failed"; });
+  }
+  else if(a==="save"){ publish(); }
+  else if(a==="webexport"){
+    if(!downloads){ msg("Downloading isn't available in this view.",false); return; }
+    downloads.save({filename:"report.html",data:buildDoc()}).then(function(){
+      msg("Saved report.html. Upload it to the public folder on GitHub to update the website copy and your Notion embeds.",true);
+    }).catch(function(e){
+      msg(e&&e.code==="declined"?"Download cancelled.":"Couldn't download: "+((e&&e.message)||"unknown error"),false);
+    });
+  }
+});
+app.addEventListener("change",function(e){
+  var t=e.target, k=t.getAttribute&&t.getAttribute("data-ch"); if(!k) return;
+  if(k==="yA"||k==="yB"){ S[k]=t.value; S.upto=0; render(); }
+  else if(k==="upto"){ S.upto=+t.value; render(); }
+  else if(k==="engCh"){ S.engCh=t.value; render(); }
+  else if(k==="eyear"){ E.year=t.value; E.msg=""; render(); }
+});
+app.addEventListener("input",function(e){
+  var t=e.target;
+  if(t.classList.contains("gcell")){ var c=t.getAttribute("data-col"); setCell(t.getAttribute("data-row"),c==="b"?"b":+c,parseNum(t.value)); markDirty(); }
+  else if(t.id==="note"){ D.note=t.value.trim(); markDirty(); }
+});
+app.addEventListener("focusout",function(e){ if(e.target.classList&&e.target.classList.contains("gcell")) render(); });
+app.addEventListener("toggle",function(e){ if(e.target.id==="ed") E.open=e.target.open; },true);
+app.addEventListener("paste",function(e){
+  var t=e.target; if(!t.classList||!t.classList.contains("gcell")) return;
+  var text=(e.clipboardData||window.clipboardData).getData("text"); if(!text||(text.indexOf("\t")<0&&text.indexOf("\n")<0)) return;
+  e.preventDefault();
+  var lines=text.replace(/\r/g,"").split("\n").filter(function(l){return l.trim()!=="";}).map(function(l){return l.split("\t");});
+  var rows=edRows(), hasBase=E.ds!=="engagement", cols=(hasBase?["b"]:[]).concat(MON.map(function(m,i){return i;}));
+  var startCol=cols.indexOf(t.getAttribute("data-col")==="b"?"b":+t.getAttribute("data-col")), startRow=rows.indexOf(t.getAttribute("data-row"));
+  var byName=lines.some(function(l){ return rows.some(function(r){ return r.toLowerCase()===String(l[0]).trim().toLowerCase(); }); });
+  var applied=0, skipped=[];
+  lines.forEach(function(l,li){
+    var row, cells=l;
+    if(byName){ var nm=String(l[0]).trim(); row=rows.filter(function(r){return r.toLowerCase()===nm.toLowerCase();})[0]; cells=l.slice(1); if(!row){ if(nm) skipped.push(nm); return; } }
+    else row=rows[startRow+li];
+    if(!row) return;
+    cells.forEach(function(v,ci){ var col=cols[startCol+ci]; if(col===undefined) return; setCell(row,col,parseNum(v)); });
+    applied++;
+  });
+  markDirty(); render();
+  msg(applied?"Filled "+applied+" row"+(applied===1?"":"s")+(skipped.length?". Skipped unrecognised: "+skipped.join(", "):"")+". Publish to save.":"Nothing matched. Check the first column of the pasted block.",!!applied);
+});
+var rz; window.addEventListener("resize",function(){ clearTimeout(rz); rz=setTimeout(function(){ var a=document.activeElement; if(!(a&&a.classList&&a.classList.contains("gcell"))) render(); },150); });
+
+function readHash(){
+  var h=(location.hash||"").replace(/^#/,""); if(!h){ S.view="all"; return; }
+  h.split("&").forEach(function(kv){ var p=kv.split("="), k=p[0], v=decodeURIComponent(p[1]||"");
+    if(k==="view"&&(SECTIONS[v]||v==="all")) S.view=v;
+    else if(k==="ya"&&D.followers[v]) S.yA=v;
+    else if(k==="yb"&&D.followers[v]) S.yB=v;
+    else if(k==="upto"&&+v>=1&&+v<=12) S.upto=+v; });
+}
+
+function buildDoc(){
+  var style=document.getElementById("app-style").textContent;
+  var code=document.getElementById("app-code").textContent;
+  var seed=JSON.stringify(D).replace(/</g,"\\u003c");
+  return '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'+
+    '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'+
+    '<title>Social Media Performance Report</title>\n'+
+    '<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'+
+    '<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,650&family=Inter:wght@400;500;550;600;650&display=swap" rel="stylesheet">\n'+
+    '<style id="app-style">'+style+'</style>\n</head>\n<body>\n<script id="seed" type="application/json">'+seed+'<\/script>\n'+
+    '<div id="app"></div>\n<script id="app-code">'+code+'<\/script>\n</body>\n</html>';
+}
+function publish(){
+  if(!artifact){ msg("Publishing isn't available in this view.",false); return; }
+  var b=app.querySelector('[data-act="save"]'); if(b) b.disabled=true;
+  msg("Publishing…",true);
+  artifact.publish(buildDoc()).then(function(){ dirty=false; msg("Published. Everyone with the link now sees these figures.",true); })
+  .catch(function(e){ if(b) b.disabled=false;
+    msg(e&&e.code==="conflict"?"Someone else published first. This view will reload to their version, so re-enter these figures afterwards.":"Couldn't publish: "+((e&&e.message)||"unknown error"),false); });
+}
+
+readHash(); render();
+window.addEventListener("hashchange",function(){ readHash(); render(); });
+if(window.claude&&claude.use){
+  claude.use("user").then(function(u){ canEdit=u?u.canEdit():false; return claude.use("artifact"); })
+  .then(function(a){ artifact=a; return claude.use("downloads"); })
+  .then(function(dl){ downloads=dl; if(canEdit&&artifact) render(); }).catch(function(){ if(canEdit&&artifact) render(); });
+}
+})();
+</script>
+</body>
+</html>
